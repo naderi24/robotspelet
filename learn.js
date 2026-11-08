@@ -2,6 +2,7 @@
 // quick answers and falls with misses (an Elo-style update). Questions are drawn mostly at the
 // current level, sometimes one below (review) or one above (probe). Missed questions return later.
 import { S, save, say, sfx, ICON, $, rand, pick, shuffle, gemIcon } from './core.js';
+import { CARS } from './cars.js';
 
 export const TRACKS = {
   math: { max: 12, start: 2, name: 'Matte' },
@@ -37,10 +38,10 @@ function chooseLevel(track) {
 function record(track, level, outcome) {
   const L = skill(track);
   const p = 1 / (1 + Math.exp(-(L.r - (level + .5)) * 1.4));
-  const K = L.n < 10 ? 1.2 : L.n < 30 ? .7 : .45;
+  const K = L.n < 10 ? 1.2 : L.n < 30 ? .8 : .55;
   L.r += K * (outcome - p);
   L.streak = outcome >= .99 ? L.streak + 1 : 0;
-  if (L.streak >= 4) { L.r += L.n < 30 ? .35 : .15; L.streak = 0; }
+  if (L.streak >= 3) { L.r += L.n < 30 ? .35 : .2; L.streak = 0; }
   L.r = Math.max(2, Math.min(TRACKS[track].max + 1.99, L.r));
   L.n++; L.hist.push(outcome >= .85 ? 1 : 0); if (L.hist.length > 30) L.hist.shift();
   const last3 = L.hist.slice(-3); if (last3.length === 3 && last3.filter(x => !x).length >= 2) { L.comfort = 3; }
@@ -60,7 +61,64 @@ function numQ(expr, ans, { hint = 'Räkna', sayTxt, near = [] } = {}) {
 const coin = () => Math.random() < .5;
 
 /* ---------- math ---------- */
+/* ---------- picture questions: clock, patterns, number line, block rows ---------- */
+const SHAPE_COL = ['#e8473a', '#2f86ff', '#ffc400', '#3db54a', '#8a5cff'];
+const shp = (k, c) => `<i class="shp shp-${k}" style="--c:${c}"></i>`;
+function clockSVG(h, m) {
+  const ha = ((h % 12) + m / 60) * 30, ma = m * 6, rad = a => (a - 90) * Math.PI / 180;
+  const nums = Array.from({ length: 12 }, (_, i) => { const n = i + 1, a = rad(n * 30); return `<text x="${50 + Math.cos(a) * 36}" y="${50 + Math.sin(a) * 36 + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="#22203e">${n}</text>`; }).join('');
+  const hand = (a, len, w, c) => `<line x1="50" y1="50" x2="${50 + Math.cos(rad(a)) * len}" y2="${50 + Math.sin(rad(a)) * len}" stroke="${c}" stroke-width="${w}" stroke-linecap="round"/>`;
+  return `<svg class="clock" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="47" fill="#fff" stroke="#22203e" stroke-width="4"/>${nums}${hand(ha, 22, 6, '#22203e')}${hand(ma, 34, 3.5, '#e8473a')}<circle cx="50" cy="50" r="4" fill="#22203e"/></svg>`;
+}
+function clockQ(L) {
+  const half = L >= 5 && Math.random() < .5, h = rand(1, 12), m = half ? 30 : 0;
+  const name = x => half ? `halv ${x % 12 + 1}` : String(x);
+  const s = new Set([h]); while (s.size < 3) s.add(rand(1, 12)); const arr = shuffle([...s]);
+  return { hint: 'Vad är klockan?', big: clockSVG(h, m), say: 'Vad är klockan?', answers: arr.map((v, i) => ({ label: name(v), aria: name(v), cls: half ? 'txt' : '', c: BTN[i][0], d: BTN[i][1] })), correct: arr.indexOf(h) };
+}
+function patternQ(L) {
+  if (L >= 4 && Math.random() < .5) { // number pattern
+    const step = L >= 7 ? pick([2, 3, 4, 5, 10, -2]) : pick([1, 2, 5, 10]), a = step < 0 ? rand(12, 20) : rand(0, L >= 6 ? 20 : 10);
+    const seq = [0, 1, 2, 3].map(i => a + i * step), ans = a + 4 * step;
+    const q = numQ('', ans, { hint: 'Vad kommer sen?', sayTxt: 'Vad kommer sen?', near: [ans + step, ans - step] });
+    q.big = `<span class="nl">${seq.map(v => `<b>${v}</b>`).join('')}<b class="q">?</b></span>`; return q;
+  }
+  const kinds = shuffle(['c', 's', 't']), cols = shuffle([...SHAPE_COL]);
+  const items = [0, 1, 2].map(i => [kinds[i], cols[i]]);
+  const unit = L <= 2 ? [0, 1] : pick([[0, 1], [0, 0, 1], [0, 1, 2], [0, 1, 1]]);
+  const seq = Array.from({ length: unit.length * 2 + (unit.length === 2 ? 2 : 1) }, (_, i) => unit[i % unit.length]);
+  const ans = unit[seq.length % unit.length];
+  const opts = shuffle([0, 1, 2]);
+  return { hint: 'Vad kommer sen?', big: `<span class="pat">${seq.map(i => shp(...items[i])).join('')}<b class="q">?</b></span>`, say: 'Vad kommer sen?', answers: opts.map(i => ({ label: shp(...items[i]), aria: 'form', cls: 'pic', c: '#ffffff', d: '#d9d4ea' })), correct: opts.indexOf(ans) };
+}
+function lineQ(L) {
+  const hi = L <= 2 ? 10 : L <= 4 ? 20 : L <= 8 ? 100 : 1000, before = Math.random() < .4, n = rand(before ? 2 : 1, hi - 1), ans = before ? n - 1 : n + 1;
+  const q = numQ('', ans, { hint: 'Vilket tal saknas?', sayTxt: 'Vilket tal saknas?', near: [ans + 10, ans - 10] });
+  q.big = `<span class="nl">${before ? `<b class="q">?</b><b>${n}</b><b>${n + 1}</b>` : `<b>${n - 1}</b><b>${n}</b><b class="q">?</b>`}</span>`; return q;
+}
+function rowsQ(L) {
+  const r = rand(2, L >= 7 ? 5 : 3), c = rand(2, L >= 7 ? 6 : 5), col = pick(['#5ff4ff', '#ffd23a', '#ff2d55', '#2fe06b']);
+  const q = numQ('', r * c, { hint: L >= 6 ? `${r} rader med ${c}` : 'Hur många?', sayTxt: 'Hur många ser du?', near: [r * c + c, r * c - c, r * c + r] });
+  q.big = `<span class="rows">${Array.from({ length: r }, () => `<span>${Array.from({ length: c }, () => gemIcon(col)).join('')}</span>`).join('')}</span>`; return q;
+}
+function extraQ(L) {
+  const kinds = ['line', 'pattern'];
+  if (L >= 2) kinds.push('clock'); if (L >= 5) kinds.push('rows', 'rows');
+  const k = pick(kinds);
+  return k === 'clock' ? clockQ(L) : k === 'pattern' ? patternQ(L) : k === 'rows' ? rowsQ(L) : lineQ(L);
+}
+// Car quiz for the races: two real cars, pick the one with more horsepower or a higher top speed.
+export function carQ(L) {
+  const kinds = [['hk', 'Flest hästkrafter?', 'Vilken bil har flest hästkrafter?', c => c.hk + ' hk', 1], ['top', 'Högst topfart?', 'Vilken bil har högst topfart?', c => c.top + ' km/h', 1]];
+  if (L >= 5) kinds.push(['acc', 'Snabbast till 100?', 'Vilken bil är snabbast till hundra?', c => String(c.acc).replace('.', ',') + ' s', -1]);
+  const [key, hint, sayTxt, fmt, dir] = pick(kinds);
+  let a, b; do { [a, b] = shuffle([...CARS]).slice(0, 2); } while (a[key] === b[key]);
+  const arr = [a, b], best = dir > 0 ? (a[key] > b[key] ? a : b) : (a[key] < b[key] ? a : b);
+  return { hint, big: '', say: sayTxt, answers: arr.map(c => ({ label: `<img src="img/cars/${c.id}.jpg" alt=""><b>${fmt(c)}</b>`, aria: c.name, cls: 'carpick', c: '#ffffff', d: '#d9d4ea' })), correct: arr.indexOf(best) };
+}
+
 function mathQ(L) {
+  if (Math.random() < .3) return extraQ(L);
   // occasional variety at lower levels
   if (L <= 2 && Math.random() < .2) { const n = rand(3, 9), c = pick(['#5ff4ff', '#ffd23a', '#ff2d55', '#2fe06b']); const q = numQ('', n, { hint: 'Hur många?', sayTxt: 'Hur många ser du?' }); q.big = `<span class="dots">${Array.from({ length: n }, () => gemIcon(c)).join('')}</span>`; return q; }
   if (L >= 3 && L <= 7 && Math.random() < .15) {
@@ -213,6 +271,7 @@ function nextQuestion(prefer) {
     return { track, level: item.level, q, review: true };
   }
   const level = chooseLevel(track);
+  if (prefer === 'car' && S.settings.math && Math.random() < .45) return { track: 'math', level: Math.min(level, 5), q: carQ(level) };
   return { track, level, q: track === 'math' ? mathQ(level) : readQ(level) };
 }
 

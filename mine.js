@@ -39,7 +39,26 @@ const PAINTS = [
   { n: 'Silver', c: 0xd8dde6, cost: { jarn: 12 } }, { n: 'Guld', c: 0xffc83d, cost: { guld: 15 } }, { n: 'Kristall', c: 0x5ff4ff, cost: { diamant: 12 } },
   { n: 'Smaragd', c: 0x169a45, cost: { smaragd: 12 } }, { n: 'Rubin', c: 0xff2d55, cost: { rubin: 12 } }, { n: 'Rymd', c: 0x8a5cff, cost: { stjarnsten: 12 } }, { n: 'Regnbåge', c: 0xff6bd6, cost: { regnbage: 12 } },
 ];
-const X0 = -6, X1 = 6, TOP = 2, BOT = -34;
+const X0 = -6, X1 = 6, BOT = -34;
+let TOP = 2; // highest row the robot can reach (higher above ground, so there is sky to build in)
+// Building blocks: everything he digs goes into the backpack and can be placed again.
+export const BLOCKS = {
+  jord: { n: 'Jord', pal: ['#7a4f2c', '#6b4426', '#875a33', '#5e3b20'], h: .45 },
+  sten: { n: 'Sten', pal: ['#8b8f99', '#7c808a', '#979ba5', '#6e727c'], h: .9 },
+  tra: { n: 'Trä', pal: ['#b07a45', '#a06c3a', '#bd8650'], h: .7, planks: true },
+  lov: { n: 'Löv', pal: ['#2f8f2f', '#3aa83a', '#277a27', '#46b846'], h: .25 },
+};
+const HAMMER = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4l6 6-3 3-6-6z"/><path d="M11 7L3 15l3 3 8-8"/></svg>';
+const iconCache = {};
+function blockIcon(t) {
+  if (iconCache[t]) return iconCache[t];
+  const c = document.createElement('canvas'); c.width = c.height = 16; const g = c.getContext('2d'), b = BLOCKS[t]; let seed = t.length * 97;
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { seed = (seed * 16807) % 2147483647; g.fillStyle = b.pal[seed % b.pal.length]; g.fillRect(x, y, 1, 1); }
+  if (b.planks) { g.fillStyle = '#6b4426'; for (let y = 3; y < 16; y += 4) g.fillRect(0, y, 16, 1); }
+  g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(0, 15, 16, 1); g.fillRect(15, 0, 1, 16);
+  return iconCache[t] = c.toDataURL();
+}
+const bagOf = (t, surface) => t === 'grass' || (t === 'b0' && surface) ? 'jord' : t === 'b0' || t === 'b1' ? 'sten' : t === 'log' ? 'tra' : t === 'leaf' ? 'lov' : t.startsWith('p_') ? t.slice(2) : null;
 let view, hud, api, W = null, bot = null, shopTab = 'tools';
 const inv = k => S.mine.inv[k] || 0;
 const canAfford = cost => !!cost && Object.entries(cost).every(([k, n]) => inv(k) >= n);
@@ -51,6 +70,7 @@ export const pickIcon = (c, size = 56) => `<svg class="pickico" width="${size}" 
 export function enter(stage, hudEl, a) {
   api = a; hud = hudEl;
   S.mine.worlds = S.mine.worlds || {}; S.mine.lamp = S.mine.lamp || 0; S.mine.finds = S.mine.finds || {}; S.mine.holds = S.mine.holds || 0;
+  S.mine.bag = Object.assign({ jord: 0, sten: 0, tra: 0, lov: 0 }, S.mine.bag || {}); S.mine.sel = S.mine.sel || 'jord'; S.mine.builds = S.mine.builds || 0;
   if (S.mine.layer > tier()) S.mine.layer = tier();
   view = createView(stage, { bloom: [.5, .5, .8], exposure: 1.1 });
   stage.addEventListener('pointerdown', onDown);
@@ -95,9 +115,10 @@ function pickOre(L, r) { let x = r(), acc = 0; for (const [k, w] of L.ores) { ac
 const isSpecial = t => !!ORES[t] || t === 'chest' || t === 'find';
 
 /* ================= world ================= */
-function persist() { if (W && bot) S.mine.worlds[W.li] = { seed: W.seed, dug: [...W.dug], x: bot.x, y: bot.y }; }
+function persist() { if (W && bot) S.mine.worlds[W.li] = { seed: W.seed, dug: [...W.dug], placed: { ...W.placed }, x: bot.x, y: bot.y }; }
 function buildWorld(li, fresh = false) {
   const L = LAYERS[li], sc = new THREE.Scene();
+  TOP = L.surface ? 7 : 2;
   const saved = !fresh && S.mine.worlds[li];
   const seed = saved ? saved.seed : Math.floor(Math.random() * 1e9);
   const r = rng(seed);
@@ -115,6 +136,9 @@ function buildWorld(li, fresh = false) {
     find: findTex(L.alt, r),
   };
   L.ores.forEach(([k]) => mats[k] = oreTex(L.base, ORES[k], r));
+  mats.log = M(0xffffff, { map: pix(['#6b4426', '#5a381e', '#7a4f2c'], r, g => { g.fillStyle = '#4a2e18'; for (let x = 2; x < 16; x += 5) g.fillRect(x, 0, 1, 16); }), roughness: 1 });
+  mats.leaf = M(0xffffff, { map: pix(BLOCKS.lov.pal, r), roughness: .9 });
+  for (const k in BLOCKS) mats['p_' + k] = M(0xffffff, { map: pix(BLOCKS[k].pal, r, BLOCKS[k].planks ? g => { g.fillStyle = '#6b4426'; for (let y = 3; y < 16; y += 4) g.fillRect(0, y, 16, 1); } : null), roughness: .95 });
   if (L.surface) {
     const side = pix(L.base, r, g => { for (let x = 0; x < 16; x++) { const h = 3 + (x * 7 % 3 === 0 ? 1 : 0); for (let y = 0; y < h; y++) { g.fillStyle = ['#5cbf3a', '#4fae31', '#69cc45'][(x + y) % 3]; g.fillRect(x, y, 1, 1); } } });
     const top = pix(['#5cbf3a', '#4fae31', '#69cc45', '#57b736'], r);
@@ -135,8 +159,17 @@ function buildWorld(li, fresh = false) {
   for (const c of [...grid.values()]) if (ORES[c.t] && r() < .3) { const n = grid.get(key(c.x + (r() < .5 ? 1 : 0), c.y - (r() < .5 ? 1 : 0))); if (n && (n.t === 'b0' || n.t === 'b1') && n.x >= X0 && n.x <= X1 && n.y > BOT) n.t = c.t; }
   const placeRare = (t, p) => { if (r() < p) { const c = grid.get(key(X0 + Math.floor(r() * 13), -8 - Math.floor(r() * 22))); if (c && c.t !== 'edge') c.t = t; } };
   placeRare('chest', .3); placeRare('find', .45);
+  const placed = saved && saved.placed ? { ...saved.placed } : {};
+  const treeKeys = [];
+  if (L.surface) for (const tx of [-3, 3]) {
+    for (let y = 1; y <= 3; y++) { put(tx, y, 'log'); treeKeys.push(key(tx, y)); }
+    for (let dx = -1; dx <= 1; dx++) for (let y = 4; y <= 5; y++) { put(tx + dx, y, 'leaf'); treeKeys.push(key(tx + dx, y)); }
+    put(tx, 6, 'leaf'); treeKeys.push(key(tx, 6));
+  }
   const dug = new Set(saved ? saved.dug : []);
+  treeKeys.forEach(k => { if (!placed[k]) dug.delete(k); }); // trees grow back between visits
   dug.forEach(k => grid.delete(k));
+  Object.keys(placed).forEach(k => { if (grid.has(k)) delete placed[k]; });
   const box = new THREE.BoxGeometry(1, 1, 1), groups = {}, o = new THREE.Object3D();
   for (const c of grid.values()) (groups[c.t] = groups[c.t] || []).push(c);
   const ims = {};
@@ -145,6 +178,7 @@ function buildWorld(li, fresh = false) {
     list.forEach((c, i) => { o.position.set(c.x, c.y, 0); o.updateMatrix(); im.setMatrixAt(i, o.matrix); c.i = i; });
     im.receiveShadow = true; sc.add(im); ims[t] = im;
   }
+  for (const [k, t] of Object.entries(placed)) { const [x, y] = k.split(',').map(Number); const m = mesh(box, mats['p_' + t], x, y, 0, sc); m.receiveShadow = true; grid.set(k, { x, y, t: 'p_' + t, mesh: m }); }
   const yMin = BOT - 2, yMax = L.surface ? .5 : TOP + 5;
   const bt = pix(L.base.map(c => shade(c, -.45)), r); bt.wrapS = bt.wrapT = THREE.RepeatWrapping; bt.repeat.set(30, yMax - yMin);
   mesh(new THREE.PlaneGeometry(30, yMax - yMin), M(0xffffff, { map: bt, roughness: 1 }), 0, (yMin + yMax) / 2, -.5, sc);
@@ -159,7 +193,7 @@ function buildWorld(li, fresh = false) {
   const chips = makeSparks(sc, 260, .1, { square: true, gravity: 9 });
   const glints = makeSparks(sc, 120, .14, { gravity: 0 });
   const motes = makeMotes(sc, 90, [-9, 9, -6, 6, -.3, .6], L.mote, .05, { speed: .15, opacity: .6 });
-  W = { li, L, sc, grid, ims, key, lamp, hemi, R, chips, glints, motes, mats, o, seed, dug, outline, crack, cracks, camY: 1.5, camX: 0, swingBase: -1.3, held: false, dig: null };
+  W = { li, L, sc, grid, ims, key, lamp, hemi, R, chips, glints, motes, mats, o, seed, dug, placed, box, outline, crack, cracks, camY: 1.5, camX: 0, swingBase: -1.3, held: false, dig: null, mode: 'dig' };
   bot = { x: 0, y: 1, anim: null, target: null, busy: false };
   if (saved && saved.y <= TOP && saved.y > BOT && !grid.has(key(saved.x, saved.y))) { bot.x = saved.x; bot.y = saved.y; }
   R.position.set(bot.x, bot.y - .5, 0); W.camY = Math.min(1.8, bot.y + .4); W.camX = Math.max(-2.5, Math.min(2.5, bot.x * .55));
@@ -204,7 +238,9 @@ function buildHud() {
       <span class="grow"></span>
       <div class="inv" id="m-inv"></div>
     </div>
+    <div class="hotbar" id="m-hotbar" hidden></div>
     <div class="m-tools">
+      <button class="tool" id="m-build" data-tts="Bygg"><span class="round big" id="m-build-ic">${HAMMER}</span><em id="m-build-lbl">Bygg</em></button>
       <button class="tool" id="m-shop" data-tts="Verkstaden"><span class="round big">${ICON.wrench}</span><em>Verkstad</em></button>
       <button class="tool" id="m-lift" data-tts="Hissen"><span class="round big">${ICON.lift}</span><em>Hiss</em></button>
     </div>
@@ -212,6 +248,7 @@ function buildHud() {
   api.refreshBattery();
   $('#m-home').onclick = () => api.exit();
   $('#m-shop').onclick = () => showShop();
+  $('#m-build').onclick = toggleBuild;
   $('#m-lift').onclick = showLift;
 }
 const nextTool = () => TOOLS[tier() + 1];
@@ -236,10 +273,37 @@ function onDown(e) {
   const tx = Math.max(X0, Math.min(X1, Math.round(hit.x))), ty = Math.max(BOT + 1, Math.min(TOP, Math.round(hit.y)));
   W.held = true; W.pressT = performance.now();
   W.outline.position.set(tx, ty, 0); W.outline.visible = true;
+  if (W.mode === 'build' && tryPlace(tx, ty)) { W.held = false; return; }
   if (tx === bot.x && ty === bot.y) return;
   bot.target = [tx, ty]; sfx.tap();
 }
 function onUp() { if (!W) return; W.held = false; }
+
+/* ================= building ================= */
+function drawHotbar() {
+  const hb = $('#m-hotbar'); if (!hb) return;
+  hb.innerHTML = Object.keys(BLOCKS).map(k => `<button class="hb${S.mine.sel === k ? ' on' : ''}" data-b="${k}" aria-label="${BLOCKS[k].n}"><img src="${blockIcon(k)}" alt=""><b>${S.mine.bag[k] || 0}</b></button>`).join('');
+  hb.querySelectorAll('.hb').forEach(b => b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); S.mine.sel = b.dataset.b; sfx.tap(); say(BLOCKS[b.dataset.b].n); drawHotbar(); }));
+}
+function toggleBuild() {
+  W.mode = W.mode === 'build' ? 'dig' : 'build'; sfx.tap();
+  const on = W.mode === 'build';
+  $('#m-hotbar').hidden = !on; $('#m-build-lbl').textContent = on ? 'Gräv' : 'Bygg'; $('#m-build-ic').innerHTML = on ? pickIcon(hexs(TOOLS[tier()].c), 30) : HAMMER;
+  $('#m-build').dataset.tts = on ? 'Gräv' : 'Bygg';
+  if (on) { drawHotbar(); if (S.mine.builds < 3) { showHint('Välj ett block och tryck där du vill bygga'); setTimeout(() => say('Välj ett block och tryck där du vill bygga!'), 400); } }
+}
+function tryPlace(x, y) {
+  if (!inside(x, y) || solid(x, y) || (x === bot.x && y === bot.y)) return false;
+  if (W.L.surface && Math.abs(x) === 5 && y <= 2) return false; // lift and workbench
+  if (!(solid(x + 1, y) || solid(x - 1, y) || solid(x, y + 1) || solid(x, y - 1))) return false;
+  const t = S.mine.sel;
+  if (!(S.mine.bag[t] > 0)) { sfx.wrong(); say('Du har inga block av den sorten. Gräv först!'); return true; }
+  const m = mesh(W.box, W.mats['p_' + t], x, y, 0, W.sc); m.receiveShadow = true; m.scale.setScalar(.6);
+  W.grid.set(W.key(x, y), { x, y, t: 'p_' + t, mesh: m }); W.placed[W.key(x, y)] = t;
+  S.mine.bag[t]--; S.mine.builds++; sfx.thud(); W.chips.burst(new THREE.Vector3(x, y, .5), 6, 1.2, BLOCKS[t].pal);
+  const t0 = performance.now(); const grow = () => { const k = Math.min(1, (performance.now() - t0) / 140); m.scale.setScalar(.6 + .4 * k); if (k < 1) requestAnimationFrame(grow); }; grow();
+  persist(); save(); drawHotbar(); return true;
+}
 
 /* ================= movement and digging ================= */
 const cellAt = (x, y) => W.grid.get(W.key(x, y));
@@ -257,6 +321,7 @@ function chooseStep() {
   bot.target = null; return null;
 }
 function hideCell(c) {
+  if (c.mesh) { W.sc.remove(c.mesh); const k = W.key(c.x, c.y); delete W.placed[k]; W.grid.delete(k); return; }
   const im = W.ims[c.t]; W.o.position.set(0, -999, 0); W.o.scale.setScalar(0); W.o.updateMatrix(); im.setMatrixAt(c.i, W.o.matrix); im.instanceMatrix.needsUpdate = true; W.o.scale.setScalar(1);
   const k = W.key(c.x, c.y); W.grid.delete(k); W.dug.add(k);
 }
@@ -264,6 +329,7 @@ function faceTo(sx, sy) { if (sx) W.R.rotation.y = sx > 0 ? Math.PI / 2 : -Math.
 function hardness(c) {
   if (ORES[c.t]) return ORES[c.t].h;
   if (c.t === 'chest') return .9; if (c.t === 'find') return 1.2;
+  if (c.t === 'log') return .8; if (c.t === 'leaf') return .25; if (c.t.startsWith('p_')) return BLOCKS[c.t.slice(2)].h;
   return c.t === 'b1' ? W.L.hard[1] : W.L.hard[0];
 }
 function bonk(c, sx, sy) {
@@ -308,7 +374,8 @@ function step(dt) {
   const [sx, sy] = s, nx = bot.x + sx, ny = bot.y + sy, c = cellAt(nx, ny);
   faceTo(sx, sy);
   if (!c) { W.dig = null; W.crack.visible = false; startAnim('move', sy > 0 ? .2 : .14, sx, sy); return; }
-  // a block is in the way: dig only while the finger is held
+  // a block is in the way: dig only while the finger is held (and never in build mode)
+  if (W.mode === 'build') { bot.target = null; return; }
   if (!W.held) { if (!W.dig || W.dig.c !== c) { bot.target = null; W.crack.visible = false; if (S.mine.holds < 6) showHint('Håll inne för att gräva'); } return; }
   if (ORES[c.t] && ORES[c.t].t > tier()) { bonk(c, sx, sy); return; }
   if (!W.dig || W.dig.c !== c) W.dig = { c, p: 0 };
@@ -321,7 +388,9 @@ function step(dt) {
   if (d.p >= 1) {
     W.dig = null; W.crack.visible = false; S.mine.holds++;
     if (isSpecial(c.t)) { openSpecial(c); return; }
-    hideCell(c); W.chips.burst(new THREE.Vector3(c.x, c.y, .45), 8, 2.2, [W.L.base[0], W.L.base[1], W.L.base[3]]); sfx.dig();
+    const bt = bagOf(c.t, W.L.surface);
+    hideCell(c); W.chips.burst(new THREE.Vector3(c.x, c.y, .45), 8, 2.2, c.t === 'leaf' || c.t === 'p_lov' ? BLOCKS.lov.pal : c.t === 'log' || c.t === 'p_tra' ? BLOCKS.tra.pal : [W.L.base[0], W.L.base[1], W.L.base[3]]); sfx.dig();
+    if (bt) { S.mine.bag[bt] = Math.min(99, (S.mine.bag[bt] || 0) + 1); drawHotbar(); }
     startAnim('move', .14, sx, sy);
   }
 }
@@ -344,7 +413,7 @@ function loop(dt, t) {
   idleRobot(R, t, 0, .6);
   W.lamp.position.set(R.position.x, R.position.y + 1, 1.4);
   if (W.L.surface) W.hemi.intensity = lerp(1.0, .3, clamp01(Math.max(0, 1 - bot.y) / 6));
-  W.camY = lerp(W.camY, Math.min(1.8, R.position.y + .9), Math.min(1, dt * 3));
+  W.camY = lerp(W.camY, Math.min(W.L.surface ? 5 : 1.8, R.position.y + (W.L.surface && bot.y >= 0 ? 1.7 : .9)), Math.min(1, dt * 3));
   W.camX = lerp(W.camX, Math.max(-2.5, Math.min(2.5, R.position.x * .55)), Math.min(1, dt * 3));
   view.camera.position.set(W.camX, W.camY + .4, 10.5); view.camera.lookAt(W.camX, W.camY, 0);
   for (const [k] of W.L.ores) W.mats[k].emissiveIntensity = ORES[k].e * (.8 + Math.sin(t * 2) * .2);

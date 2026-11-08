@@ -398,7 +398,7 @@ function raceLoop(dt, t) {
     if (r.tankT > 2 && !r.saidNitro && (S.drag.nitroTut || 0) < 4) { r.saidNitro = true; S.drag.nitroTut = (S.drag.nitroTut || 0) + 1; say('Tryck på nitro!'); }
     if (r.phase === 'go' && r.k < 2 && r.p.x >= D * r.marks[r.k]) {
       r.phase = 'q'; r.tsTarget = .03; r.k++;
-      ask({ title: 'Nitro', accent: TRACKS[r.ti].color, place: 'race' }).then(res => { if (!R) return; addNitro(nitroFrom(res)); const rn = rivalNitro(res); if (rn) { r.q.s = rn; r.q.sT = r.go; } if (!res.wrongs) r.firsts++; r.phase = 'go'; r.tsTarget = 1; });
+      ask({ title: 'Nitro', accent: TRACKS[r.ti].color, place: 'race', prefer: 'car' }).then(res => { if (!R) return; addNitro(nitroFrom(res)); const rn = rivalNitro(res); if (rn) { r.q.s = rn; r.q.sT = r.go; } if (!res.wrongs) r.firsts++; r.phase = 'go'; r.tsTarget = 1; });
     }
     if (!r.p.fin && r.p.x >= D) r.p.fin = r.go;
     if (!r.q.fin && r.q.x >= D) r.q.fin = r.go;
