@@ -43,7 +43,7 @@ const today = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMo
 function fresh() {
   return {
     v: 1, updatedAt: 0,
-    settings: { minutes: 15, math: true, read: true },
+    settings: { minutes: 15, math: true, read: true, farsi: true },
     learn: {},
     day: { date: today(), used: 0, bonus: 0 },
     mine: { inv: {}, seen: {}, drill: 0, layer: 0, paint: 0, paints: [0], tut: false },
@@ -251,7 +251,7 @@ function schedule() {
    A pre-recorded Swedish voice (Piper, see tools/) lives in voice/v0.mp4, v1.mp4 … (about 25 s each, loaded only when needed) with an index in voice.json.
    say() splits a sentence into recorded pieces (longest match first, numbers built from parts) and
    plays them back to back. Anything not recorded falls back to the device's own speech voice. */
-export const normSay = s => s.toLowerCase().replace(/[−–]/g, ' minus ').replace(/[.,!?:;"“”()]/g, ' ').replace(/\s+/g, ' ').trim();
+export const normSay = s => s.toLowerCase().replace(/[−–]/g, ' minus ').replace(/[.,!?:;"“”()،؟]/g, ' ').replace(/\s+/g, ' ').trim();
 let vIndex = null, vLoading = null, vSrcs = [], vGain = null, vSeq = 0;
 const vCache = new Map(); // chunk number -> Promise<AudioBuffer>, only a few kept (phones have little memory)
 export function loadVoice() {
@@ -259,7 +259,8 @@ export function loadVoice() {
   vLoading = (async () => {
     try {
       const j = await fetch('voice/voice.json').then(r => r.json());
-      vIndex = j.clips; vGain = ac.createGain(); vGain.gain.value = 1; vGain.connect(ac.destination);
+      vIndex = j.clips;
+      try { const f = await fetch('voice/voice-fa.json').then(r => r.json()); for (const [k, [c, st, d]] of Object.entries(f.clips)) vIndex[k] = ['f' + c, st, d]; } catch {} vGain = ac.createGain(); vGain.gain.value = 1; vGain.connect(ac.destination);
       chunk(0); chunk(1);
     } catch (e) { console.warn('voice', e); vLoading = null; }
   })();
@@ -267,7 +268,7 @@ export function loadVoice() {
 }
 function chunk(i) {
   if (vCache.has(i)) { const p = vCache.get(i); vCache.delete(i); vCache.set(i, p); return p; }
-  const p = fetch(`voice/v${i}.mp4`).then(r => r.arrayBuffer()).then(b => new Promise((res, rej) => ac.decodeAudioData(b, res, rej)));
+  const p = fetch(`voice/${typeof i === 'number' ? 'v' + i : i}.mp4`).then(r => r.arrayBuffer()).then(b => new Promise((res, rej) => ac.decodeAudioData(b, res, rej)));
   p.catch(() => vCache.delete(i));
   vCache.set(i, p);
   while (vCache.size > 5) { const first = vCache.keys().next().value; if (first === 0) { const z = vCache.get(0); vCache.delete(0); vCache.set(0, z); continue; } vCache.delete(first); }
@@ -305,7 +306,8 @@ if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged 
 function speakDevice(text) {
   try {
     if (!('speechSynthesis' in window)) return;
-    const u = new SpeechSynthesisUtterance(text); u.lang = 'sv-SE'; if (svVoice) u.voice = svVoice; u.rate = .92; u.pitch = 1.05; duck(2600);
+    const isFa = /[\u0600-\u06FF]/.test(text);
+    const u = new SpeechSynthesisUtterance(text); u.lang = isFa ? 'fa-IR' : 'sv-SE'; if (svVoice && !isFa) u.voice = svVoice; u.rate = .92; u.pitch = 1.05; duck(2600);
     speechSynthesis.speak(u);
   } catch {}
 }

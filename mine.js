@@ -184,6 +184,15 @@ function buildWorld(li, fresh = false) {
   const placeRare = (t, p) => { if (r() < p) { const c = grid.get(key(X0 + Math.floor(r() * 13), -8 - Math.floor(r() * 22))); if (c && c.t !== 'edge') c.t = t; } };
   placeRare('chest', .3); placeRare('find', .45);
   const placed = saved && saved.placed ? { ...saved.placed } : {};
+  // a small hill on one side and a pond on the other (own random stream so ores stay put)
+  const waterCells = [];
+  if (L.surface) {
+    const tr = rng(seed + 7), hillLeft = tr() < .5, hc = hillLeft ? -3 : 3, pc = -hc;
+    for (const dx of [-1, 0, 1]) { put(hc + dx, 1, 'grass'); const below = grid.get(key(hc + dx, 0)); if (below) below.t = 'b0'; }
+    put(hc, 2, 'grass'); grid.get(key(hc, 1)).t = 'b0';
+    for (const dx of [-1, 0, 1]) { grid.delete(key(pc + dx, 0)); waterCells.push([pc + dx, 0]); }
+    grid.delete(key(pc, -1)); waterCells.push([pc, -1]);
+  }
   const treeKeys = [];
   if (L.surface) for (const tx of [X0, X1]) {
     for (let y = 1; y <= 3; y++) { put(tx, y, 'log'); treeKeys.push(key(tx, y)); }
@@ -202,6 +211,8 @@ function buildWorld(li, fresh = false) {
     list.forEach((c, i) => { o.position.set(c.x, c.y, 0); o.updateMatrix(); im.setMatrixAt(i, o.matrix); c.i = i; });
     im.receiveShadow = true; sc.add(im); ims[t] = im;
   }
+  const water = new Map(), waterM = new THREE.MeshStandardMaterial({ color: 0x2f8fff, transparent: true, opacity: .55, roughness: .1, metalness: .1, emissive: 0x0a2a5a, emissiveIntensity: .5, depthWrite: false });
+  for (const [x, y] of waterCells) { const k = key(x, y); if (placed[k] || dug.has(k + 'w')) continue; water.set(k, mesh(new THREE.BoxGeometry(1, y === 0 ? .86 : 1, 1), waterM, x, y - (y === 0 ? .07 : 0), 0, sc)); }
   for (const [k, t] of Object.entries(placed)) { const [x, y] = k.split(',').map(Number); const m = mesh(box, mats['p_' + t], x, y, 0, sc); m.receiveShadow = true; grid.set(k, { x, y, t: 'p_' + t, mesh: m }); }
   const yMin = BOT - 2, yMax = L.surface ? .5 : TOP + 5;
   const bt = pix(L.base.map(c => shade(c, -.45)), r); bt.wrapS = bt.wrapT = THREE.RepeatWrapping; bt.repeat.set(30, yMax - yMin);
@@ -217,7 +228,7 @@ function buildWorld(li, fresh = false) {
   const chips = makeSparks(sc, 260, .1, { square: true, gravity: 9 });
   const glints = makeSparks(sc, 120, .14, { gravity: 0 });
   const motes = makeMotes(sc, 90, [-9, 9, -6, 6, -.3, .6], L.mote, .05, { speed: .15, opacity: .6 });
-  W = { li, L, sc, grid, ims, key, lamp, hemi, front, R, chips, glints, motes, mats, o, seed, dug, placed, box, outline, crack, cracks, camY: 1.5, camX: 0, swingBase: -1.3, held: false, dig: null, mode: 'dig',
+  W = { li, L, sc, grid, ims, key, lamp, hemi, front, R, chips, glints, motes, mats, o, seed, dug, placed, box, outline, crack, cracks, water, waterM, camY: 1.5, camX: 0, swingBase: -1.3, held: false, dig: null, mode: 'dig',
     mobs: [], clock: 25, spawnT: 1.5, regenT: 0, wasNight: false, dayBg: sc.background, ambI: L.amb[2] };
   if (L.surface) {
     W.moon = mesh(new THREE.CircleGeometry(1.6, 32), new THREE.MeshBasicMaterial({ color: 0xe8ecff, fog: false }), -8, 8.5, -12, sc); W.moon.visible = false;
@@ -344,6 +355,7 @@ function tryPlace(x, y) {
   if (!(solid(x + 1, y) || solid(x - 1, y) || solid(x, y + 1) || solid(x, y - 1))) return false;
   const t = S.mine.sel;
   if (!(S.mine.bag[t] > 0)) { sfx.wrong(); say('Du har inga block av den sorten. Gräv först!'); return true; }
+  const wk = W.key(x, y); if (W.water.has(wk)) { W.sc.remove(W.water.get(wk)); W.water.delete(wk); }
   const m = mesh(W.box, W.mats['p_' + t], x, y, 0, W.sc); m.receiveShadow = true; m.scale.setScalar(.6);
   W.grid.set(W.key(x, y), { x, y, t: 'p_' + t, mesh: m }); W.placed[W.key(x, y)] = t;
   S.mine.bag[t]--; S.mine.builds++; sfx.thud(); W.chips.burst(new THREE.Vector3(x, y, .5), 6, 1.2, BLOCKS[t].pal);
@@ -468,6 +480,7 @@ function loop(dt, t) {
   if (Math.random() < .03 && !CALM) { const cs = [...W.grid.values()].filter(c => isSpecial(c.t) && Math.abs(c.y - bot.y) < 6); if (cs.length) { const c = pick(cs); W.glints.burst(new THREE.Vector3(c.x + (Math.random() - .5) * .8, c.y + (Math.random() - .5) * .8, .52), 1, .2, ['#ffffff']); } }
   W.chips.update(dt); W.glints.update(dt); W.motes.update(dt);
   W.motes.points.position.y = R.position.y;
+  if (W.water.size) W.waterM.opacity = .5 + Math.sin(t * 1.5) * .06;
   lifeTick(dt, t);
   view.render();
 }
@@ -525,7 +538,7 @@ function lifeTick(dt, t) {
     W.spawnT = 6 + Math.random() * 6;
     const animals = W.mobs.filter(m => m.animal).length, monsters = W.mobs.filter(m => !m.animal).length;
     if (W.L.surface && !W.wasNight && animals < 3 && Math.random() < (animals < 2 ? 1 : .5)) {
-      const xs = []; for (let x = X0 + 1; x < X1; x++) { if (Math.abs(x) === 5 || Math.abs(x - bot.x) <= 1) continue; const y = ground(x, 2); if (y != null && y >= 1 && !mobAt(x, y)) xs.push([x, y]); }
+      const xs = []; for (let x = X0 + 1; x < X1; x++) { if (Math.abs(x) === 5 || Math.abs(x - bot.x) <= 1 || W.water.has(W.key(x, 0))) continue; const y = ground(x, 2); if (y != null && y >= 1 && !mobAt(x, y)) xs.push([x, y]); }
       if (xs.length) { const [x, y] = pick(xs); addCreature(pick(['ko', 'gris', 'hona']), x, y); }
     }
     const surfaceNight = W.L.surface && W.wasNight && bot.y >= -1;

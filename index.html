@@ -14,7 +14,7 @@
 <link rel="icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;800&family=Vazirmatn:wght@500;700&display=swap">
 </head>
 <body>
 <style>
@@ -146,6 +146,12 @@ button:focus-visible{outline:3px solid #fff;outline-offset:3px}
 .ans.pic .shp{width:clamp(30px,8vh,44px);height:clamp(30px,8vh,44px)}
 .ans.carpick{display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px;color:#22203e;text-shadow:none;font-size:clamp(16px,4.4vh,22px)}
 .ans.carpick img{width:100%;height:clamp(56px,17vh,96px);object-fit:cover;border-radius:12px;pointer-events:none}
+.fa{font-family:'Vazirmatn','Geeza Pro','Tahoma',sans-serif;direction:rtl;unicode-bidi:isolate}
+.qbody .hint .fa{font-size:20px;color:#6b6890}
+.fa-letter{font-size:clamp(56px,16vh,90px);line-height:1;color:var(--q)}
+.fa-word{font-size:clamp(40px,11vh,64px);line-height:1.1;letter-spacing:0;color:var(--q)}
+.ans.fa-ans .fa{font-size:clamp(26px,7vh,40px);line-height:1}
+.ans.fa-l .fa{font-size:clamp(34px,9vh,52px)}
 .ans.ok{--c:#47c42c!important;--d:#2b8616!important;color:#fff;animation:pop .45s}
 .ans.no{animation:shake .4s}.ans.gone{opacity:.3;pointer-events:none}
 /* sheets */
@@ -355,7 +361,7 @@ button:focus-visible{outline:3px solid #fff;outline-offset:3px}
 <div id="glLost" class="screen" hidden style="z-index:96;background:#0b0e1a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;font-family:var(--display)"><p style="font-size:24px;margin:0">Oj! Spelet behöver startas om.</p><button class="pill strong" onclick="location.reload()">Starta om</button></div>
 <div id="home" class="screen">
   <div class="h-top">
-    <h1>Robotspelet</h1><span id="ver" style="font-size:11px;color:#6b7194;font-weight:800;align-self:flex-end;margin-bottom:6px">v11</span>
+    <h1>Robotspelet</h1><span id="ver" style="font-size:11px;color:#6b7194;font-weight:800;align-self:flex-end;margin-bottom:6px">v12</span>
     <div class="chip" data-batt><b class="batt"><i></i></b><span></span></div>
     <span class="grow"></span>
     <button class="round" id="musicBtn" aria-label="Musik på eller av"></button>
@@ -426,7 +432,7 @@ button:focus-visible{outline:3px solid #fff;outline-offset:3px}
 </script>
 <script type="module">
 import { S, save, $, ICON, timer, updateBatteries, audioInit, initCloud, say, sfx, openPanel, closePanel, resetProgress, rand, toast, coinIcon, music, createView, cloudReady, isLite } from './core.js';
-import { TRACKS as LT, LEVEL_TEXT, skill, levelOf, setLevel, accuracy } from './learn.js';
+import { TRACKS as LT, LEVEL_TEXT, skill, levelOf, setLevel, accuracy, faProgress, faSetLevel } from './learn.js';
 import * as mine from './mine.js';
 import * as drag from './drag.js';
 import { TRACKS, CARS } from './cars.js';
@@ -512,14 +518,14 @@ function settings(confirmReset = false) {
     <label>Kvar idag: ${Math.ceil(timer.left() / 60)} min${S.day.bonus ? ` (varav ${Math.round(S.day.bonus / 60)} min extra)` : ''}</label>
     <div class="seg" id="extend">${[5, 10, 15, 30].map(m => `<button data-x="${m}">+${m} min idag</button>`).join('')}</div>
     <label>Övningar</label>
-    <div class="seg"><button id="tMath" class="${st.math ? 'on' : ''}">Matte</button><button id="tRead" class="${st.read ? 'on' : ''}">Läsa</button></div>
+    <div class="seg"><button id="tMath" class="${st.math ? 'on' : ''}">Matte</button><button id="tRead" class="${st.read ? 'on' : ''}">Läsa</button><button id="tFa" class="${st.farsi !== false ? 'on' : ''}">Persiska</button></div>
     <label>Nivå (anpassas automatiskt efter hur det går)</label>
-    <div class="lv">${lv('math')}${lv('read')}</div>
+    <div class="lv">${lv('math')}${lv('read')}${(() => { const f = faProgress(); return `<span>Persiska</span><span class="ldesc">${f.stage ? `Ord, steg ${f.stage} av 3` : `Bokstäver: ${f.letters} av ${f.total} klara (grupp ${f.set + 1} av 8)`}</span><span><button class="lvbtn" id="faDown" aria-label="Lättare">−</button> <button class="lvbtn" id="faUp" aria-label="Svårare">+</button></span>`; })()}</div>
     <label>Spara</label>
     <p style="margin:0;color:var(--muted);font-weight:800;font-size:14px">Framstegen sparas på kontot när spelet öppnas inloggad, annars i den här webbläsaren.</p>
     <label>Grafik</label>
     <div class="seg" id="gfx"><button data-g="lite" class="${isLite() ? 'on' : ''}">Snabb (för äldre telefoner)</button><button data-g="nice" class="${isLite() ? '' : 'on'}">Snygg</button></div>
-    <label>Felrapport · version 11</label>
+    <label>Felrapport · version 12</label>
     <p style="margin:0;color:var(--muted);font-weight:800;font-size:13px;white-space:pre-wrap;-webkit-user-select:text;user-select:text">${(window.__errLog || []).length ? (window.__errLog || []).slice(-10).join('\n') : 'Inga fel.'}</p>
     <label>Börja om</label>
     <div class="seg">${confirmReset ? '<button id="resetYes" class="danger">Ja, radera allt</button><button id="resetNo">Avbryt</button>' : '<button id="reset">Nollställ spelet</button>'}</div>
@@ -529,7 +535,10 @@ function settings(confirmReset = false) {
   body.querySelectorAll('#extend button').forEach(b => b.onclick = () => { const m = +b.dataset.x; S.day.bonus += m * 60; save(); updateBatteries(); toast(`+${m} minuter idag`); if (!$('#sleep').hidden) { show('home'); renderHome(); music.mood('home'); setTimeout(renderPreviews, 300); } settings(); });
   body.querySelector('#tMath').onclick = () => { st.math = !st.math; if (!st.math && !st.read) st.read = true; save(); settings(); };
   body.querySelector('#tRead').onclick = () => { st.read = !st.read; if (!st.math && !st.read) st.math = true; save(); settings(); };
-  body.querySelectorAll('.lvbtn').forEach(b => b.onclick = () => { const t = b.dataset.t; setLevel(t, Math.max(1, Math.min(LT[t].max, levelOf(t) + +b.dataset.d))); settings(); });
+  body.querySelector('#tFa').onclick = () => { st.farsi = st.farsi === false; save(); settings(); };
+  body.querySelector('#faUp').onclick = () => { faSetLevel(faProgress().set + 1); settings(); };
+  body.querySelector('#faDown').onclick = () => { faSetLevel(faProgress().set - 1); settings(); };
+  body.querySelectorAll('.lvbtn[data-t]').forEach(b => b.onclick = () => { const t = b.dataset.t; setLevel(t, Math.max(1, Math.min(LT[t].max, levelOf(t) + +b.dataset.d))); settings(); });
   body.querySelectorAll('#gfx button').forEach(b => b.onclick = () => { st.gfx = b.dataset.g; save(); toast('Grafiken ändras när spelet startas nästa gång'); settings(); });
   const r = body.querySelector('#reset'); if (r) r.onclick = () => settings(true);
   const ry = body.querySelector('#resetYes'); if (ry) ry.onclick = () => { resetProgress(); renderHome(); settings(); toast('Spelet är nollställt'); };

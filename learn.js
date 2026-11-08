@@ -1,7 +1,7 @@
 // Adaptive question engine. Each skill (math, reading) has a rating that rises with first-try,
 // quick answers and falls with misses (an Elo-style update). Questions are drawn mostly at the
 // current level, sometimes one below (review) or one above (probe). Missed questions return later.
-import { S, save, say, sfx, ICON, $, rand, pick, shuffle, gemIcon } from './core.js';
+import { S, save, say, sfx, ICON, $, rand, pick, shuffle, gemIcon, toast } from './core.js';
 import { CARS } from './cars.js';
 
 export const TRACKS = {
@@ -257,13 +257,79 @@ function readQ(L) {
   return picQ('Vilken bild?', `${a[4]} ÄTER ${f[0]}`, 'Vilken bild passar meningen?', items, items[0], it => `<span class="em-row">${it[1]}</span>`);
 }
 
+/* ---------- Persian (farsi): letters first, words once the alphabet is learned ----------
+   He speaks Persian but can't read it yet, so letters are taught sound-first: he hears the letter and a
+   word he knows, then taps the letter. Letters come in small groups; a letter counts as learned after
+   3 first-try right answers in a row, and the next group opens when the whole group is learned.
+   Words unlock only when all letters are learned: short words, then longer, then picture -> word. */
+export const FA_SETS = [
+  [['ا', 'الف', 'اسب', '🐴'], ['ب', 'به', 'بادکنک', '🎈'], ['د', 'دال', 'دست', '✋'], ['م', 'میم', 'ماه', '🌙']],
+  [['ن', 'نون', 'نان', '🍞'], ['س', 'سین', 'سیب', '🍎'], ['ر', 'ره', 'روباه', '🦊'], ['ت', 'ته', 'توپ', '⚽']],
+  [['ی', 'یه', 'یخ', '🧊'], ['و', 'واو', 'وال', '🐳'], ['ک', 'کاف', 'کفش', '👟'], ['گ', 'گاف', 'گل', '🌸']],
+  [['ش', 'شین', 'شیر', '🦁'], ['ل', 'لام', 'لاک‌پشت', '🐢'], ['پ', 'په', 'پرنده', '🐦'], ['ز', 'زه', 'زنبور', '🐝']],
+  [['ج', 'جیم', 'جوجه', '🐤'], ['چ', 'چه', 'چتر', '☂️'], ['خ', 'خه', 'خرگوش', '🐰'], ['ف', 'فه', 'فیل', '🐘']],
+  [['ه', 'هه', 'هویج', '🥕'], ['ق', 'قاف', 'قایق', '⛵'], ['غ', 'غین', 'غذا', '🍲'], ['آ', 'آ', 'آب', '💧']],
+  [['ع', 'عین', 'عینک', '👓'], ['ح', 'حه', 'حلزون', '🐌'], ['ط', 'طا', 'طوطی', '🦜'], ['ص', 'صاد', 'صندلی', '🪑']],
+  [['ژ', 'ژه', 'ژله', '🍮'], ['ذ', 'ذال', 'ذرت', '🌽'], ['ث', 'ثه', 'ثانیه', '⏱️'], ['ض', 'ضاد', 'ضبط', '📻'], ['ظ', 'ظا', 'ظرف', '🍽️']],
+];
+export const FA_WORDS1 = [['آب', '💧'], ['گل', '🌸'], ['ماه', '🌙'], ['نان', '🍞'], ['سیب', '🍎'], ['دست', '✋'], ['شیر', '🦁'], ['موش', '🐭'], ['اسب', '🐴'], ['توپ', '⚽'], ['کفش', '👟'], ['فیل', '🐘'], ['سگ', '🐶'], ['برف', '❄️'], ['یخ', '🧊'], ['چتر', '☂️'], ['ابر', '☁️'], ['کیک', '🎂'], ['در', '🚪']];
+export const FA_WORDS2 = [['بابا', '👨'], ['مامان', '👩'], ['ماهی', '🐟'], ['درخت', '🌳'], ['خرس', '🐻'], ['گربه', '🐱'], ['باران', '🌧️'], ['ماشین', '🚗'], ['کتاب', '📖'], ['خانه', '🏠'], ['جوجه', '🐤'], ['روباه', '🦊'], ['زنبور', '🐝'], ['هویج', '🥕'], ['قایق', '⛵'], ['پرنده', '🐦'], ['عینک', '👓'], ['خرگوش', '🐰'], ['ستاره', '⭐'], ['موز', '🍌'], ['انگور', '🍇']];
+export const FA_PHRASES = { which: 'کدوم حرفه؟', starts: 'کدوم عکس با این حرف شروع میشه؟', wordPic: 'این کلمه کدوم عکسه؟', picWord: 'کدوم کلمه درسته؟', retry: 'دوباره امتحان کن.', newSet: 'آفرین! حرف‌های جدید!', words: 'آفرین! حالا کلمه می‌خونیم!' };
+export const FA_PRAISE = ['آفرین!', 'عالیه!', 'درسته!', 'باریکلا!'];
+export const faLetterSay = l => `${l[1]}، مثلِ ${l[2]}. ${FA_PHRASES.which}`;
+const FA_ALL = FA_SETS.flat();
+export function fa() { S.learn = S.learn || {}; return S.learn.fa || (S.learn.fa = { m: {}, set: 0, stage: 0, w: {} }); }
+const faLearned = ch => (fa().m[ch] || 0) >= 3;
+export function faProgress() { const F = fa(); return { letters: FA_ALL.filter(l => faLearned(l[0])).length, total: FA_ALL.length, set: F.set, stage: F.stage }; }
+export function faSetLevel(set) { const F = fa(); F.set = Math.max(0, Math.min(FA_SETS.length - 1, set)); if (F.set < FA_SETS.length - 1) F.stage = 0; save(); }
+const faBig = t => `<span class="fa">${t}</span>`;
+function faQuestion() {
+  const F = fa(), open = FA_SETS.slice(0, F.set + 1).flat();
+  const wordsQ = (list, pool) => {
+    const t = pick(list.filter(w => (F.w[w[0]] || 0) < 2).length ? list.filter(w => (F.w[w[0]] || 0) < 2) : list);
+    const others = shuffle(pool.filter(w => w !== t && w[1] !== t[1])).slice(0, 2);
+    if (F.stage >= 3 && Math.random() < .5) { const arr = shuffle([t, ...others]); return { fa: true, item: { k: 'w', id: t[0] }, after: t[0], hint: faBig(FA_PHRASES.picWord), big: `<span class="emo">${t[1]}</span>`, say: FA_PHRASES.picWord, answers: arr.map((w, i) => ({ label: faBig(w[0]), aria: w[0], cls: 'txt fa-ans', c: BTN[i][0], d: BTN[i][1] })), correct: arr.indexOf(t) }; }
+    const arr = shuffle([t, ...others]);
+    return { fa: true, item: { k: 'w', id: t[0] }, after: t[0], hint: faBig(FA_PHRASES.wordPic), big: `<span class="fa fa-word">${t[0]}</span>`, word: true, say: FA_PHRASES.wordPic, answers: arr.map(w => ({ label: w[1], aria: 'bild', cls: 'pic', c: '#ffffff', d: '#d9d4ea' })), correct: arr.indexOf(t) };
+  };
+  if (F.stage >= 1 && Math.random() > .1) {
+    const list = F.stage === 1 ? FA_WORDS1 : F.stage === 2 ? [...FA_WORDS2, ...FA_WORDS1.slice(0, 6)] : [...FA_WORDS1, ...FA_WORDS2];
+    return wordsQ(list, [...FA_WORDS1, ...FA_WORDS2]);
+  }
+  const cur = FA_SETS[F.set], todo = cur.filter(l => !faLearned(l[0]));
+  const L = Math.random() < .72 ? pick(todo.length ? todo : cur) : pick(open);
+  const pool = (open.length >= 3 ? open : FA_ALL).filter(x => x !== L && !(L[0] === 'ا' && x[0] === 'آ') && !(L[0] === 'آ' && x[0] === 'ا'));
+  const others = shuffle(pool).slice(0, 2);
+  if ((F.m[L[0]] || 0) >= 1 && Math.random() < .35) { // see the letter, pick the picture that starts with it
+    const arr = shuffle([L, ...others]);
+    return { fa: true, item: { k: 'l', id: L[0] }, after: L[2], hint: faBig(FA_PHRASES.starts), big: `<span class="fa fa-letter">${L[0]}</span>`, say: FA_PHRASES.starts, answers: arr.map(x => ({ label: x[3], aria: x[2], cls: 'pic', c: '#ffffff', d: '#d9d4ea' })), correct: arr.indexOf(L) };
+  }
+  const arr = shuffle([L, ...others]); // hear the letter, pick it
+  return { fa: true, item: { k: 'l', id: L[0] }, hint: faBig(FA_PHRASES.which), big: `<span class="emo">${L[3]}</span>`, say: faLetterSay(L), answers: arr.map((x, i) => ({ label: faBig(x[0]), aria: x[1], cls: 'txt fa-ans fa-l', c: BTN[i][0], d: BTN[i][1] })), correct: arr.indexOf(L) };
+}
+function faRecord(item, wrongs) {
+  const F = fa(), tbl = item.k === 'l' ? F.m : F.w;
+  tbl[item.id] = wrongs ? 0 : (tbl[item.id] || 0) + 1;
+  if (item.k === 'l' && F.stage === 0 && FA_SETS[F.set].every(l => faLearned(l[0]))) {
+    if (F.set < FA_SETS.length - 1) { F.set++; return 'newSet'; }
+    F.stage = 1; return 'words';
+  }
+  if (item.k === 'w') {
+    const share = list => list.filter(w => (F.w[w[0]] || 0) >= 2).length / list.length;
+    if (F.stage === 1 && share(FA_WORDS1) >= .8) F.stage = 2;
+    else if (F.stage === 2 && share(FA_WORDS2) >= .8) F.stage = 3;
+  }
+  return null;
+}
+
 /* ---------- picking and asking ---------- */
 let lastTrack = 'read';
 function nextQuestion(prefer) {
   const tracks = [];
-  if (S.settings.math) tracks.push('math'); if (S.settings.read) tracks.push('read'); if (!tracks.length) tracks.push('math', 'read');
-  let track = prefer && tracks.includes(prefer) && Math.random() < .6 ? prefer : tracks.length > 1 ? (lastTrack === 'math' ? 'read' : 'math') : tracks[0];
+  if (S.settings.math) tracks.push('math'); if (S.settings.read) tracks.push('read'); if (S.settings.farsi !== false) tracks.push('farsi'); if (!tracks.length) tracks.push('math', 'read');
+  let track = prefer && tracks.includes(prefer) && Math.random() < .6 ? prefer : tracks[(tracks.indexOf(lastTrack) + 1) % tracks.length];
   lastTrack = track;
+  if (track === 'farsi') return { track, level: 0, q: faQuestion() };
   const L = skill(track);
   if (L.miss.length && Math.random() < .22) {
     const item = L.miss.shift(); const q = JSON.parse(JSON.stringify(item.q));
@@ -298,15 +364,23 @@ export function ask({ title = 'Fråga', accent = '#6a4cff', place = '', prefer =
     function choose(b) {
       if (m.dataset.done || b.classList.contains('gone')) return;
       if (+b.dataset.i === q.correct) {
-        m.dataset.done = '1'; b.classList.add('ok'); sfx.right(); if (!wrongs) say(pick(PRAISE));
-        const secs = (performance.now() - t0) / 1000;
-        const outcome = wrongs === 0 ? (secs < 10 ? 1 : .85) : wrongs === 1 ? .3 : 0;
-        record(track, level, outcome);
-        const L = skill(track);
-        if (wrongs) { L.miss.push({ level, q }); if (L.miss.length > 8) L.miss.shift(); }
-        save();
+        m.dataset.done = '1'; b.classList.add('ok'); sfx.right();
+        if (q.fa) {
+          const ev = faRecord(q.item, wrongs); save();
+          const words = [q.after, wrongs ? '' : pick(FA_PRAISE), ev ? FA_PHRASES[ev] : ''].filter(Boolean);
+          say(words.join(' '));
+          if (ev === 'newSet') toast('Nya persiska bokstäver!', 2200); if (ev === 'words') toast('Alla bokstäver klara! Nu kommer persiska ord.', 3000);
+        } else {
+          if (!wrongs) say(pick(PRAISE));
+          const secs = (performance.now() - t0) / 1000;
+          const outcome = wrongs === 0 ? (secs < 10 ? 1 : .85) : wrongs === 1 ? .3 : 0;
+          record(track, level, outcome);
+          const L = skill(track);
+          if (wrongs) { L.miss.push({ level, q }); if (L.miss.length > 8) L.miss.shift(); }
+          save();
+        }
         setTimeout(() => { m.className = 'qmodal'; m.innerHTML = ''; asking = false; resolve({ wrongs, track, level, firstTry: !wrongs }); }, 650);
-      } else { wrongs++; b.classList.add('no', 'gone'); sfx.wrong(); say('Försök igen.'); }
+      } else { wrongs++; b.classList.add('no', 'gone'); sfx.wrong(); say(q.fa ? FA_PHRASES.retry : 'Försök igen.'); }
     }
   });
 }
