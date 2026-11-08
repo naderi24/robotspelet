@@ -2,6 +2,7 @@
 // Ores and finds open with a question. Pickaxes are built from ores and open deeper caves.
 import { THREE, S, save, $, ICON, gemIcon, coinIcon, M, E, RB, mesh, canvasTex, skyTex, makeSparks, makeMotes, createView, makeRobot, idleRobot, setLoop, sfx, say, toast, openPanel, closePanel, toScreen, flyTo, lerp, ease, clamp01, rand, pick, CALM } from './core.js';
 import { ask, cancelAsk, isAsking } from './learn.js';
+import { makeCreature, ANIMALS, MOBS } from './creatures.js';
 
 // t = pickaxe tier needed, h = how hard (seconds with the first pickaxe)
 export const ORES = {
@@ -61,8 +62,30 @@ function blockIcon(t) {
 const bagOf = (t, surface) => t === 'grass' || (t === 'b0' && surface) ? 'jord' : t === 'b0' || t === 'b1' ? 'sten' : t === 'log' ? 'tra' : t === 'leaf' ? 'lov' : t.startsWith('p_') ? t.slice(2) : null;
 let view, hud, api, W = null, bot = null, shopTab = 'tools';
 const inv = k => S.mine.inv[k] || 0;
-const canAfford = cost => !!cost && Object.entries(cost).every(([k, n]) => inv(k) >= n);
-const pay = cost => Object.entries(cost).forEach(([k, n]) => S.mine.inv[k] = inv(k) - n);
+const have = k => BLOCKS[k] ? (S.mine.bag[k] || 0) : inv(k);
+const canAfford = cost => !!cost && Object.entries(cost).every(([k, n]) => have(k) >= n);
+const pay = cost => Object.entries(cost).forEach(([k, n]) => { if (BLOCKS[k]) S.mine.bag[k] = have(k) - n; else S.mine.inv[k] = inv(k) - n; });
+const itemIcon = (k, s) => ORES[k] ? gemIcon(ORES[k].c, s) : BLOCKS[k] ? `<img class="bicon" src="${blockIcon(k)}" alt="">` : k === 'lader' ? '<i class="leath"></i>' : '';
+// Swords decide how many hits a fight takes; armor sometimes stops a monster's hit.
+export const SWORDS = [
+  { n: 'Träsvärd', c: 0xa8763e, dmg: 1 },
+  { n: 'Stensvärd', c: 0x9aa0aa, dmg: 2, cost: { sten: 12 } },
+  { n: 'Järnsvärd', c: 0xe8d8c8, dmg: 3, cost: { jarn: 8 } },
+  { n: 'Guldsvärd', c: 0xffd23a, dmg: 4, cost: { guld: 8 } },
+  { n: 'Diamantsvärd', c: 0x5ff4ff, dmg: 5, cost: { diamant: 8 } },
+];
+export const ARMOR = [
+  { n: 'Ingen rustning', c: 0x6b7194, block: 0 },
+  { n: 'Läderrustning', c: 0xa0643a, block: .25, cost: { lader: 5 } },
+  { n: 'Järnrustning', c: 0xe8d8c8, block: .4, cost: { jarn: 12 } },
+  { n: 'Guldrustning', c: 0xffd23a, block: .55, cost: { guld: 12 } },
+  { n: 'Diamantrustning', c: 0x5ff4ff, block: .7, cost: { diamant: 14 } },
+];
+const MAXHP = 5;
+const swordIcon = (c, size = 56) => `<svg width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true"><g transform="rotate(45 32 32)"><path d="M28 4h8v40h-8z" fill="${c}" stroke="rgba(0,0,0,.35)" stroke-width="2"/><path d="M28 4l4-4 4 4z" fill="${c}"/><rect x="20" y="42" width="24" height="6" rx="2" fill="#5a3a1c"/><rect x="29" y="48" width="6" height="12" rx="2" fill="#8a5a2c"/></g></svg>`;
+const armorIcon = (c, size = 56) => `<svg width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true"><path d="M14 10l10-4c2 6 14 6 16 0l10 4 6 14-8 4v28H16V28l-8-4z" fill="${c}" stroke="rgba(0,0,0,.35)" stroke-width="2" stroke-linejoin="round"/></svg>`;
+const heartSVG = full => `<svg viewBox="0 0 24 24" class="heart${full ? '' : ' empty'}" aria-hidden="true"><path d="M12 21s-8-5.2-8-11a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 10c0 5.8-8 11-8 11z"/></svg>`;
+const FOODICON = '<svg viewBox="0 0 24 24" class="foodi" aria-hidden="true"><path d="M15 3a6 6 0 0 0-5.6 8.2L4 16.6a2 2 0 1 0 2.8 2.8l1-1 1 1A2 2 0 1 0 11.6 17l-1-1 2.2-2.2A6 6 0 1 0 15 3z" fill="#c8743a"/><circle cx="15" cy="9" r="3" fill="#e8955a"/></svg>';
 const hexs = n => '#' + n.toString(16).padStart(6, '0');
 const tier = () => Math.min(S.mine.drill || 0, TOOLS.length - 1);
 export const pickIcon = (c, size = 56) => `<svg class="pickico" width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true"><g transform="rotate(-35 32 32)"><rect x="29" y="16" width="6" height="44" rx="3" fill="#8a5a2c"/><path d="M6 20 Q32 4 58 20 L56 25 Q32 13 8 25Z" fill="${c}" stroke="rgba(0,0,0,.35)" stroke-width="2" stroke-linejoin="round"/></g></svg>`;
@@ -71,6 +94,7 @@ export function enter(stage, hudEl, a) {
   api = a; hud = hudEl;
   S.mine.worlds = S.mine.worlds || {}; S.mine.lamp = S.mine.lamp || 0; S.mine.finds = S.mine.finds || {}; S.mine.holds = S.mine.holds || 0;
   S.mine.bag = Object.assign({ jord: 0, sten: 0, tra: 0, lov: 0 }, S.mine.bag || {}); S.mine.sel = S.mine.sel || 'jord'; S.mine.builds = S.mine.builds || 0;
+  if (S.mine.hp == null) S.mine.hp = MAXHP; S.mine.food = S.mine.food || 0; S.mine.sword = S.mine.sword || 0; S.mine.armor = S.mine.armor || 0;
   if (S.mine.layer > tier()) S.mine.layer = tier();
   view = createView(stage, { bloom: [.5, .5, .8], exposure: 1.1 });
   stage.addEventListener('pointerdown', onDown);
@@ -161,7 +185,7 @@ function buildWorld(li, fresh = false) {
   placeRare('chest', .3); placeRare('find', .45);
   const placed = saved && saved.placed ? { ...saved.placed } : {};
   const treeKeys = [];
-  if (L.surface) for (const tx of [-3, 3]) {
+  if (L.surface) for (const tx of [X0, X1]) {
     for (let y = 1; y <= 3; y++) { put(tx, y, 'log'); treeKeys.push(key(tx, y)); }
     for (let dx = -1; dx <= 1; dx++) for (let y = 4; y <= 5; y++) { put(tx + dx, y, 'leaf'); treeKeys.push(key(tx + dx, y)); }
     put(tx, 6, 'leaf'); treeKeys.push(key(tx, 6));
@@ -193,20 +217,27 @@ function buildWorld(li, fresh = false) {
   const chips = makeSparks(sc, 260, .1, { square: true, gravity: 9 });
   const glints = makeSparks(sc, 120, .14, { gravity: 0 });
   const motes = makeMotes(sc, 90, [-9, 9, -6, 6, -.3, .6], L.mote, .05, { speed: .15, opacity: .6 });
-  W = { li, L, sc, grid, ims, key, lamp, hemi, R, chips, glints, motes, mats, o, seed, dug, placed, box, outline, crack, cracks, camY: 1.5, camX: 0, swingBase: -1.3, held: false, dig: null, mode: 'dig' };
+  W = { li, L, sc, grid, ims, key, lamp, hemi, front, R, chips, glints, motes, mats, o, seed, dug, placed, box, outline, crack, cracks, camY: 1.5, camX: 0, swingBase: -1.3, held: false, dig: null, mode: 'dig',
+    mobs: [], clock: 25, spawnT: 1.5, regenT: 0, wasNight: false, dayBg: sc.background, ambI: L.amb[2] };
+  if (L.surface) {
+    W.moon = mesh(new THREE.CircleGeometry(1.6, 32), new THREE.MeshBasicMaterial({ color: 0xe8ecff, fog: false }), -8, 8.5, -12, sc); W.moon.visible = false;
+    W.stars = makeMotes(sc, 160, [-24, 24, 4, 16, -11.5, -11], 0xffffff, .12, { speed: 0, opacity: 0 }); W.sun = sc.userData.sun;
+    W.nightBg = new THREE.Color(0x0b1030); W.dayFog = new THREE.Color(0xcfeaff);
+  }
+  gearRobot();
   bot = { x: 0, y: 1, anim: null, target: null, busy: false };
   if (saved && saved.y <= TOP && saved.y > BOT && !grid.has(key(saved.x, saved.y))) { bot.x = saved.x; bot.y = saved.y; }
   R.position.set(bot.x, bot.y - .5, 0); W.camY = Math.min(1.8, bot.y + .4); W.camX = Math.max(-2.5, Math.min(2.5, bot.x * .55));
   persist(); save();
   view.camera.fov = 40; view.camera.updateProjectionMatrix();
-  updateHud();
+  updateHud(); drawStatus();
   if (S.mine.holds < 3) { showHint('Håll inne på en sten för att gräva'); setTimeout(() => say('Håll fingret på en sten för att gräva!'), 500); }
   else setTimeout(() => say(L.n), 300);
   setLoop(loop);
 }
 function decorate(sc, L) {
   if (L.surface) {
-    mesh(new THREE.CircleGeometry(2.2, 32), new THREE.MeshBasicMaterial({ color: 0xfff3c4, fog: false }), 9, 9, -12, sc);
+    sc.userData.sun = mesh(new THREE.CircleGeometry(2.2, 32), new THREE.MeshBasicMaterial({ color: 0xfff3c4, fog: false }), 9, 9, -12, sc);
     const hillM = M(0x5fbf3c, { roughness: 1, flatShading: true });
     for (let i = 0; i < 6; i++) { const h = mesh(new THREE.SphereGeometry(6 + Math.random() * 5, 16, 8), hillM, -20 + i * 8, -2.5, -14 - Math.random() * 4, sc); h.scale.y = .45; }
     const trunk = M(0x6b4426), leaf = M(0x3aa83a, { roughness: .9 });
@@ -238,6 +269,7 @@ function buildHud() {
       <span class="grow"></span>
       <div class="inv" id="m-inv"></div>
     </div>
+    <div class="m-status" id="m-status"></div>
     <div class="hotbar" id="m-hotbar" hidden></div>
     <div class="m-tools">
       <button class="tool" id="m-build" data-tts="Bygg"><span class="round big" id="m-build-ic">${HAMMER}</span><em id="m-build-lbl">Bygg</em></button>
@@ -250,6 +282,7 @@ function buildHud() {
   $('#m-shop').onclick = () => showShop();
   $('#m-build').onclick = toggleBuild;
   $('#m-lift').onclick = showLift;
+  drawStatus();
 }
 const nextTool = () => TOOLS[tier() + 1];
 function updateHud() {
@@ -259,6 +292,19 @@ function updateHud() {
   const ks = nt ? Object.keys(nt.cost) : W.L.ores.map(o => o[0]).slice(0, 2);
   $('#m-inv').innerHTML = ks.map(k => { const need = nt && nt.cost[k]; return `<div class="slot" id="slot-${k}">${gemIcon(ORES[k].c)}<b>${inv(k)}${need ? `<small>/${need}</small>` : ''}</b></div>`; }).join('') + (nt ? `<div class="slot goal">${pickIcon(hexs(nt.c), 22)}<b><small>${nt.n}</small></b></div>` : '');
   $('#m-shop .round').classList.toggle('ready', canAfford(nt && nt.cost));
+}
+function drawStatus() {
+  const el = $('#m-status'); if (!el || !W) return;
+  const night = W.L.surface ? (W.wasNight ? 'moon' : 'sun') : '';
+  el.innerHTML = `<div class="hearts" id="m-hearts">${Array.from({ length: MAXHP }, (_, i) => heartSVG(i < S.mine.hp)).join('')}</div>
+    <button class="foodbtn" id="m-food" aria-label="Ät">${FOODICON}<b>${S.mine.food}</b></button>
+    ${night ? `<span class="daynight ${night}" aria-hidden="true"></span>` : ''}`;
+  $('#m-food').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); eat(); });
+}
+function eat() {
+  if (!S.mine.food) { sfx.wrong(); say('Du har ingen mat. Fånga djur på gräset!'); return; }
+  if (S.mine.hp >= MAXHP) { sfx.tap(); say('Du är mätt.'); return; }
+  S.mine.food--; S.mine.hp = Math.min(MAXHP, S.mine.hp + 2); sfx.right(); say('Mums!'); save(); drawStatus();
 }
 function showHint(t) { const h = $('#m-hint'); if (!h) return; h.textContent = t; h.classList.add('on'); clearTimeout(h._t); h._t = setTimeout(() => h.classList.remove('on'), 4000); }
 
@@ -293,7 +339,7 @@ function toggleBuild() {
   if (on) { drawHotbar(); if (S.mine.builds < 3) { showHint('Välj ett block och tryck där du vill bygga'); setTimeout(() => say('Välj ett block och tryck där du vill bygga!'), 400); } }
 }
 function tryPlace(x, y) {
-  if (!inside(x, y) || solid(x, y) || (x === bot.x && y === bot.y)) return false;
+  if (!inside(x, y) || solid(x, y) || (x === bot.x && y === bot.y) || mobAt(x, y)) return false;
   if (W.L.surface && Math.abs(x) === 5 && y <= 2) return false; // lift and workbench
   if (!(solid(x + 1, y) || solid(x - 1, y) || solid(x, y + 1) || solid(x, y - 1))) return false;
   const t = S.mine.sel;
@@ -373,6 +419,8 @@ function step(dt) {
   const s = chooseStep(); if (!s) { W.dig = null; W.crack.visible = false; return; }
   const [sx, sy] = s, nx = bot.x + sx, ny = bot.y + sy, c = cellAt(nx, ny);
   faceTo(sx, sy);
+  const who = mobAt(nx, ny);
+  if (who) { bot.target = null; who.animal ? catchAnimal(who) : fight(who); return; }
   if (!c) { W.dig = null; W.crack.visible = false; startAnim('move', sy > 0 ? .2 : .14, sx, sy); return; }
   // a block is in the way: dig only while the finger is held (and never in build mode)
   if (W.mode === 'build') { bot.target = null; return; }
@@ -420,15 +468,164 @@ function loop(dt, t) {
   if (Math.random() < .03 && !CALM) { const cs = [...W.grid.values()].filter(c => isSpecial(c.t) && Math.abs(c.y - bot.y) < 6); if (cs.length) { const c = pick(cs); W.glints.burst(new THREE.Vector3(c.x + (Math.random() - .5) * .8, c.y + (Math.random() - .5) * .8, .52), 1, .2, ['#ffffff']); } }
   W.chips.update(dt); W.glints.update(dt); W.motes.update(dt);
   W.motes.points.position.y = R.position.y;
+  lifeTick(dt, t);
   view.render();
 }
 
+/* ================= life: day and night, animals, monsters ================= */
+const DAY = 200, NIGHT = 75; // seconds
+const mobAt = (x, y) => W && W.mobs.find(m => !m.gone && m.x === x && m.y === y);
+function ground(x, maxY) { for (let y = maxY; y > BOT + 1; y--) if (!solid(x, y) && solid(x, y - 1)) return y; return null; }
+function addCreature(kind, x, y) {
+  const animal = !!ANIMALS[kind], g = makeCreature(kind);
+  g.scale.setScalar(.95); g.position.set(x, y - .5, 0); W.sc.add(g);
+  const m = { kind, animal, def: animal ? ANIMALS[kind] : MOBS[kind], x, y, hp: animal ? 1 : MOBS[kind].hp, g, t: Math.random() * 2, dir: Math.random() < .5 ? 1 : -1, fx: x, fy: y, k: 1 };
+  g.rotation.y = m.dir > 0 ? 0 : Math.PI; W.mobs.push(m); return m;
+}
+function removeCreature(m, poof = true) {
+  m.gone = true; W.sc.remove(m.g);
+  if (poof) W.chips.burst(new THREE.Vector3(m.x, m.y, .5), 18, 2, ['#ffffff', '#dfe3ea', '#b8bec8']);
+  W.mobs = W.mobs.filter(x => x !== m);
+}
+function moveCreature(m, nx, ny) { m.fx = m.x; m.fy = m.y; m.x = nx; m.y = ny; m.k = 0; if (nx !== m.fx) { m.dir = Math.sign(nx - m.fx); m.g.rotation.y = m.dir > 0 ? 0 : Math.PI; } }
+function creatureStep(m) {
+  if (!solid(m.x, m.y - 1) && m.y - 1 > BOT && !mobAt(m.x, m.y - 1) && !(bot.x === m.x && bot.y === m.y - 1)) { moveCreature(m, m.x, m.y - 1); return; }
+  const near = !m.animal && Math.abs(bot.x - m.x) + Math.abs(bot.y - m.y) <= 9;
+  const sx = near ? Math.sign(bot.x - m.x) || 0 : (Math.random() < .3 ? -m.dir : m.dir);
+  if (!sx) return;
+  const nx = m.x + sx, free = (x, y) => inside(x, y) && !solid(x, y) && !mobAt(x, y) && !(bot.x === x && bot.y === y);
+  if (m.animal && (W.L.surface && (Math.abs(nx) === 5 || nx < X0 || nx > X1))) { m.dir = -m.dir; return; }
+  if (free(nx, m.y)) moveCreature(m, nx, m.y);
+  else if (free(m.x, m.y + 1) && free(nx, m.y + 1) && solid(nx, m.y)) moveCreature(m, nx, m.y + 1); // climb one block
+  else m.dir = -m.dir;
+}
+function lifeTick(dt, t) {
+  const busy = bot.busy || isAsking() || $('#panel').classList.contains('on');
+  // day and night only above ground
+  if (W.L.surface) {
+    if (!busy) W.clock += dt;
+    const c = W.clock % (DAY + NIGHT), target = c > DAY ? 1 : 0;
+    W.night = lerp(W.night || 0, target, Math.min(1, dt * .4));
+    const n = W.night, deep = clamp01(Math.max(0, 1 - bot.y) / 6);
+    W.sc.background = n > .5 ? W.nightBg : W.dayBg;
+    W.sc.fog.color.lerpColors(W.dayFog, W.nightBg, n);
+    W.hemi.intensity = lerp(1.0, .3, deep) * (1 - .72 * n); W.front.intensity = 1.6 * (1 - .8 * n);
+    W.sun.visible = n < .5; W.moon.visible = n >= .5; W.stars.points.material.opacity = n;
+    const isNight = target === 1;
+    if (isNight !== W.wasNight) {
+      W.wasNight = isNight; drawStatus();
+      if (isNight) { say('Natten kommer! Bygg ett hus eller gå ner i gruvan.'); toast('Natten kommer. Monster kan komma fram!', 2800); }
+      else { say('Det blir morgon!'); W.mobs.filter(m => !m.animal && m.y >= 0).forEach(m => removeCreature(m)); }
+    }
+  }
+  if (busy) { W.mobs.forEach(m => animCreature(m, 0, t)); return; }
+  // spawning
+  W.spawnT -= dt;
+  if (W.spawnT <= 0) {
+    W.spawnT = 6 + Math.random() * 6;
+    const animals = W.mobs.filter(m => m.animal).length, monsters = W.mobs.filter(m => !m.animal).length;
+    if (W.L.surface && !W.wasNight && animals < 3 && Math.random() < (animals < 2 ? 1 : .5)) {
+      const xs = []; for (let x = X0 + 1; x < X1; x++) { if (Math.abs(x) === 5 || Math.abs(x - bot.x) <= 1) continue; const y = ground(x, 2); if (y != null && y >= 1 && !mobAt(x, y)) xs.push([x, y]); }
+      if (xs.length) { const [x, y] = pick(xs); addCreature(pick(['ko', 'gris', 'hona']), x, y); }
+    }
+    const surfaceNight = W.L.surface && W.wasNight && bot.y >= -1;
+    const caveChance = W.L.surface ? (bot.y < -3 ? .08 : 0) : .12 + .03 * W.li;
+    if (surfaceNight && monsters < 3 && Math.random() < .7) {
+      const x = pick([X0, X1, X0 + 1, X1 - 1]), y = ground(x, 2);
+      if (y != null && Math.abs(x - bot.x) > 3 && !mobAt(x, y)) addCreature(pick(['zombie', 'zombie', 'skelett', 'slem']), x, y);
+    } else if (!surfaceNight && monsters < (W.li >= 3 ? 2 : 1) && Math.random() < caveChance) {
+      const spots = [];
+      for (let x = X0; x <= X1; x++) for (let y = bot.y - 6; y <= bot.y + 4; y++) { const d = Math.abs(x - bot.x) + Math.abs(y - bot.y); if (d >= 4 && d <= 9 && inside(x, y) && y < 0 && !solid(x, y) && solid(x, y - 1) && !mobAt(x, y)) spots.push([x, y]); }
+      if (spots.length) { const [x, y] = pick(spots); const kinds = [['zombie', 'skelett'], ['zombie', 'skelett', 'slem'], ['skelett', 'slem'], ['slem', 'spokbot'], ['spokbot', 'spokbot', 'slem']][W.li]; addCreature(pick(kinds), x, y); }
+    }
+  }
+  // moving, and monsters that reach the robot start a fight
+  for (const m of [...W.mobs]) {
+    m.t -= dt;
+    if (m.t <= 0 && m.k >= 1) { m.t = m.animal ? 1.6 + Math.random() * 2 : .75; creatureStep(m); }
+    animCreature(m, dt, t);
+    if (!m.animal && m.k >= 1 && Math.abs(bot.x - m.x) + Math.abs(bot.y - m.y) <= 1 && !bot.anim) { fight(m); break; }
+  }
+  // hearts slowly come back
+  if (S.mine.hp < MAXHP) { W.regenT += dt; if (W.regenT > 60) { W.regenT = 0; S.mine.hp++; save(); drawStatus(); } }
+}
+function animCreature(m, dt, t) {
+  m.k = Math.min(1, m.k + dt / .35);
+  const e = ease(m.k), x = lerp(m.fx, m.x, e), y = lerp(m.fy, m.y, m.fy > m.y ? m.k * m.k : e);
+  m.g.position.set(x, y - .5 + (m.k < 1 ? Math.sin(m.k * Math.PI) * .08 : 0), 0);
+  if (m.g.userData.bob) m.g.userData.bob.position.y = (m.kind === 'slem' ? .26 : 0) + Math.sin(t * 3 + m.x) * .04;
+}
+async function catchAnimal(m) {
+  bot.busy = true; faceTo(Math.sign(m.x - bot.x), 0); say(m.def.say);
+  await ask({ title: `Fånga: ${m.def.n}`, accent: '#7ac74f' });
+  if (!W) return;
+  removeCreature(m); sfx.gem();
+  S.mine.food = Math.min(20, (S.mine.food || 0) + m.def.food);
+  if (m.def.lader) S.mine.inv.lader = inv('lader') + m.def.lader;
+  toast(`${FOODICON} +${m.def.food} mat${m.def.lader ? ' och <i class="leath"></i> +1 läder' : ''}`, 2000);
+  save(); drawStatus(); bot.busy = false;
+}
+const wait = ms => new Promise(r => setTimeout(r, ms));
+async function fight(m) {
+  if (bot.busy) return;
+  bot.busy = true; bot.target = null; W.dig = null; W.crack.visible = false;
+  faceTo(Math.sign(m.x - bot.x) || 1, 0); sfx.thud(); say(m.def.say);
+  while (W && m.hp > 0 && S.mine.hp > 0) {
+    const res = await ask({ title: `Strid: ${m.def.n}`, accent: '#e8473a' });
+    if (!W) return;
+    if (res.wrongs) { // a wrong answer lets the monster hit once; armor may stop it
+      if (Math.random() < ARMOR[S.mine.armor].block) { sfx.tap(); toast(`${armorIcon(hexs(ARMOR[S.mine.armor].c), 26)} Rustningen skyddade dig!`, 1500); }
+      else { S.mine.hp = Math.max(0, S.mine.hp - 1); hurt(); }
+      drawStatus(); save();
+      if (S.mine.hp <= 0) break;
+    }
+    const arm = W.R.userData.armL; arm.rotation.x = -2.2; setTimeout(() => { if (W) arm.rotation.x = -.3; }, 220);
+    m.hp -= SWORDS[S.mine.sword].dmg; sfx.dig(); W.chips.burst(new THREE.Vector3(m.x, m.y, .5), 10, 2, ['#ffffff', '#ff8080']);
+    m.g.position.x += Math.sign(m.x - bot.x) * .15;
+    await wait(400);
+  }
+  if (!W) return;
+  if (S.mine.hp <= 0) { faint(); return; }
+  removeCreature(m); sfx.win(); say('Du vann striden!'); bot.busy = false; save();
+}
+function hurt() {
+  sfx.thud(); say('Aj!');
+  const bm = W.R.userData.m.bodyM; bm.emissive.set(0xff2020); bm.emissiveIntensity = .8; setTimeout(() => { if (W) bm.emissive.set(0x000000); }, 300);
+  const h = $('#m-hearts'); if (h) { h.classList.remove('hit'); void h.offsetWidth; h.classList.add('hit'); }
+}
+function faint() {
+  const lost = Object.values(S.mine.inv).reduce((a, b) => a + (b || 0), 0);
+  S.mine.inv = {}; S.mine.hp = MAXHP;
+  W.mobs.filter(m => !m.animal).forEach(m => removeCreature(m));
+  bot.anim = null; bot.target = null; bot.x = 0; bot.y = 1; W.R.position.set(0, .5, 0);
+  persist(); save(); updateHud(); drawStatus();
+  say('Robo svimmade! Du tappade dina stenar.');
+  toast(lost ? `Robo svimmade och tappade ${lost} stenar. Försök igen!` : 'Robo svimmade. Försök igen!', 3400);
+  bot.busy = false;
+}
+function gearRobot() {
+  const u = W.R.userData, hand = u.armL.userData.hand;
+  if (u.sword) hand.remove(u.sword);
+  const sw = new THREE.Group(), sc = SWORDS[S.mine.sword].c;
+  sw.add(mesh(new THREE.BoxGeometry(.1, .9, .05), M(sc, { metalness: .8, roughness: .25, emissive: sc, emissiveIntensity: .15 }), 0, -.55, .1));
+  sw.add(mesh(new THREE.BoxGeometry(.34, .07, .1), M(0x5a3a1c), 0, -.08, .1));
+  hand.add(sw); u.sword = sw;
+  if (u.plate) W.R.remove(u.plate);
+  if (S.mine.armor > 0) { const a = ARMOR[S.mine.armor]; u.plate = mesh(RB(1.08, .7, .2, .08), M(a.c, { metalness: .7, roughness: .3 }), 0, 1.4, .46, W.R); }
+}
+
 /* ================= workshop ================= */
-const costChips = cost => Object.entries(cost).map(([k, n]) => `<span class="cost${inv(k) >= n ? ' ok' : ''}">${gemIcon(ORES[k].c)}<b>${Math.min(inv(k), n)}/${n}</b></span>`).join('');
+const costChips = cost => Object.entries(cost).map(([k, n]) => `<span class="cost${have(k) >= n ? ' ok' : ''}">${itemIcon(k)}<b>${Math.min(have(k), n)}/${n}</b></span>`).join('');
 function showShop(tab) {
   sfx.tap(); if (tab) shopTab = tab;
   const T = tier(), seen = Object.keys(ORES).filter(k => S.mine.seen[k]);
-  const tabs = [['tools', 'Hackor'], ['lamp', 'Lampa'], ['paint', 'Färger'], ['finds', 'Samling']];
+  const tabs = [['tools', 'Hackor'], ['sword', 'Svärd'], ['armor', 'Rustning'], ['lamp', 'Lampa'], ['paint', 'Färger'], ['finds', 'Samling']];
+  const gearShelf = (list, cur, kind, icon, note) => `<div class="shelf">${list.map((it, i) => {
+    const st = i < cur ? 'done' : i === cur ? 'mine' : i === cur + 1 ? 'next' : 'later';
+    return `<div class="item ${st}" style="--ic:${hexs(it.c)}">${st === 'mine' ? `<span class="badge">${kind === 'sword' ? 'Ditt svärd' : 'Din rustning'}</span>` : ''}
+      <div class="item-art">${icon(st === 'later' ? '#3a3f55' : hexs(it.c), 60)}</div><b>${st === 'later' ? '???' : it.n}</b>
+      <div class="mines"><span>${note(it)}</span></div>
+      ${st === 'next' ? `<div class="costs">${costChips(it.cost)}</div><button class="pill strong${canAfford(it.cost) ? '' : ' dim'}" data-buy="${kind}" data-i="${i}">Bygg</button>` : st === 'later' ? `<div class="item-note">${ICON.lock}</div>` : `<div class="item-note ok">${ICON.check}</div>`}</div>`; }).join('')}</div>`;
   let content = '';
   if (shopTab === 'tools') content = `<div class="shelf">${TOOLS.map((tl, i) => {
     const st = i < T ? 'done' : i === T ? 'mine' : i === T + 1 ? 'next' : 'later';
@@ -441,6 +638,8 @@ function showShop(tab) {
       ${st === 'next' ? `<div class="costs">${costChips(tl.cost)}</div><button class="pill strong${canAfford(tl.cost) ? '' : ' dim'}" data-buy="tool" data-i="${i}">Bygg</button>` : st === 'later' ? `<div class="item-note">${ICON.lock}</div>` : `<div class="item-note ok">${ICON.check}</div>`}
     </div>`; }).join('')}</div>
     <p class="shop-tip">Bättre hackor gräver snabbare, kan bryta hårdare stenar och öppnar nya grottor i hissen.</p>`;
+  if (shopTab === 'sword') content = gearShelf(SWORDS, S.mine.sword || 0, 'sword', swordIcon, it => `${it.dmg} ${it.dmg === 1 ? 'slag' : 'slag'} per rätt svar`) + '<p class="shop-tip">Ett bättre svärd gör striderna kortare.</p>';
+  if (shopTab === 'armor') content = gearShelf(ARMOR, S.mine.armor || 0, 'armor', armorIcon, it => it.block ? `Skyddar ofta` : 'Inget skydd') + '<p class="shop-tip">Rustning kan stoppa monstrens slag. Läder får du från kor.</p>';
   if (shopTab === 'lamp') { const ml = S.mine.lamp || 0; content = `<div class="shelf">${LAMPS.map((lp, i) => {
     const st = i < ml ? 'done' : i === ml ? 'mine' : i === ml + 1 ? 'next' : 'later';
     return `<div class="item ${st}" style="--ic:#ffe08a">
@@ -458,7 +657,12 @@ function showShop(tab) {
     ${content}`, '#e27b3c');
   body.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => showShop(b.dataset.tab));
   body.querySelectorAll('[data-buy]').forEach(b => b.onclick = () => {
-    const i = +b.dataset.i, isTool = b.dataset.buy === 'tool', item = isTool ? TOOLS[i] : LAMPS[i];
+    const i = +b.dataset.i, kind = b.dataset.buy, isTool = kind === 'tool', item = isTool ? TOOLS[i] : kind === 'sword' ? SWORDS[i] : kind === 'armor' ? ARMOR[i] : LAMPS[i];
+    if (kind === 'sword' || kind === 'armor') {
+      if (!canAfford(item.cost)) { sfx.wrong(); say('Du behöver fler stenar.'); return; }
+      pay(item.cost); sfx.unlock(); S.mine[kind] = i; gearRobot(); say(`${item.n}!`); toast(`${(kind === 'sword' ? swordIcon : armorIcon)(hexs(item.c), 26)} ${item.n}!`, 2200);
+      persist(); save(); updateHud(); showShop(); return;
+    }
     if (!canAfford(item.cost)) { sfx.wrong(); say('Du behöver fler stenar.'); return; }
     pay(item.cost); sfx.unlock();
     if (isTool) {
@@ -519,3 +723,5 @@ export function previewScene(v) {
   for (let i = 0; i < 14; i++) { const ch = mesh(new THREE.BoxGeometry(.07, .07, .07), M(i % 2 ? ore.px[0] : L.base[0], { emissive: i % 2 ? ore.px[0] : 0x000000, emissiveIntensity: .8 }), -.4 + Math.random() * .5, -.3 + Math.random() * .7, .3 + Math.random() * .3, sc); ch.rotation.set(Math.random() * 3, Math.random() * 3, 0); }
   return { scene: sc, camera(c) { c.fov = 40; c.position.set(-.4, .2, 8.6); c.lookAt(-.8, -.5, 0); c.updateProjectionMatrix(); } };
 }
+
+export const _debug = () => ({ W, bot });

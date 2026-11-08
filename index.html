@@ -91,6 +91,25 @@ button:focus-visible{outline:3px solid #fff;outline-offset:3px}
 .hb img{width:100%;height:100%;image-rendering:pixelated;border-radius:6px;display:block}
 .hb b{position:absolute;right:-4px;bottom:-4px;min-width:24px;height:24px;border-radius:12px;background:#fff;color:#22203e;font:700 14px/24px var(--display);text-align:center;padding:0 4px}
 .hb.on{box-shadow:inset 0 0 0 3px #ffc83d;background:rgba(255,200,61,.18)}
+.m-status{position:absolute;top:calc(var(--st) + 62px);left:var(--sl);display:flex;align-items:center;gap:8px;pointer-events:none}
+.hearts{display:flex;gap:2px;padding:5px 8px;border-radius:99px;background:rgba(10,12,30,.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.hearts.hit{animation:shake .4s}
+.heart{width:20px;height:20px;fill:#ff3b5c;stroke:#fff;stroke-width:1.4}.heart.empty{fill:rgba(255,255,255,.12);stroke:rgba(255,255,255,.5)}
+.foodbtn{display:flex;align-items:center;gap:4px;border:0;border-radius:99px;padding:4px 10px 4px 6px;background:rgba(10,12,30,.55);color:#fff;font-weight:700;font-size:15px;pointer-events:auto}
+.foodi{width:24px;height:24px;display:inline-block;vertical-align:middle}
+.daynight{width:26px;height:26px;border-radius:50%;display:inline-block}.daynight.sun{background:radial-gradient(circle,#fff3b0,#ffc83d 60%,#ff9a1f);box-shadow:0 0 12px #ffc83d}.daynight.moon{background:radial-gradient(circle at 35% 35%,#fff,#c8d0f0);box-shadow:0 0 10px #8fa0ff}
+.leath{display:inline-block;width:18px;height:18px;border-radius:4px;background:#a0643a;box-shadow:inset 0 0 0 2px #7a4a2a,inset 0 0 0 4px #b8784a;vertical-align:middle}
+.bicon{width:20px;height:20px;image-rendering:pixelated;border-radius:3px;vertical-align:middle}
+.flash{perspective:1000px;width:min(420px,100%);margin:0 auto;cursor:pointer}
+.flash-in{position:relative;transition:transform .5s;transform-style:preserve-3d;min-height:clamp(220px,60vh,360px)}
+.flash.flipped .flash-in{transform:rotateY(180deg)}
+.fl-front,.fl-back{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.fl-front{border-radius:20px;overflow:hidden;background:#121729;display:flex;flex-direction:column;box-shadow:inset 0 0 0 2px rgba(255,255,255,.15)}
+.fl-front img{width:100%;flex:1;min-height:0;object-fit:cover}
+.fl-front b{font-family:var(--display);font-size:22px;padding:10px 14px 2px}
+.fl-front span{font-size:13px;color:var(--muted);padding:0 14px 12px;font-weight:800}
+.fl-back{transform:rotateY(180deg);overflow:auto}
+.fl-nav{display:flex;align-items:center;justify-content:center;gap:16px;margin-top:12px;font-family:var(--display);font-weight:700}
 .hintb{position:absolute;left:50%;top:30%;transform:translate(-50%,-50%) scale(.9);opacity:0;background:#fffdf7;color:#22203e;font-weight:700;font-size:22px;padding:14px 22px;border-radius:20px;transition:.3s;box-shadow:0 6px 0 rgba(0,0,0,.25)}
 .hintb.on{opacity:1;transform:translate(-50%,-50%) scale(1)}
 .fly{position:fixed;z-index:60;pointer-events:none;transform:translate(0,0);transition:transform .65s cubic-bezier(.5,0,.3,1),opacity .65s;margin:-17px 0 0 -17px}
@@ -336,7 +355,7 @@ button:focus-visible{outline:3px solid #fff;outline-offset:3px}
 <div id="glLost" class="screen" hidden style="z-index:96;background:#0b0e1a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;font-family:var(--display)"><p style="font-size:24px;margin:0">Oj! Spelet behöver startas om.</p><button class="pill strong" onclick="location.reload()">Starta om</button></div>
 <div id="home" class="screen">
   <div class="h-top">
-    <h1>Robotspelet</h1><span id="ver" style="font-size:11px;color:#6b7194;font-weight:800;align-self:flex-end;margin-bottom:6px">v10</span>
+    <h1>Robotspelet</h1><span id="ver" style="font-size:11px;color:#6b7194;font-weight:800;align-self:flex-end;margin-bottom:6px">v11</span>
     <div class="chip" data-batt><b class="batt"><i></i></b><span></span></div>
     <span class="grow"></span>
     <button class="round" id="musicBtn" aria-label="Musik på eller av"></button>
@@ -500,7 +519,7 @@ function settings(confirmReset = false) {
     <p style="margin:0;color:var(--muted);font-weight:800;font-size:14px">Framstegen sparas på kontot när spelet öppnas inloggad, annars i den här webbläsaren.</p>
     <label>Grafik</label>
     <div class="seg" id="gfx"><button data-g="lite" class="${isLite() ? 'on' : ''}">Snabb (för äldre telefoner)</button><button data-g="nice" class="${isLite() ? '' : 'on'}">Snygg</button></div>
-    <label>Felrapport · version 10</label>
+    <label>Felrapport · version 11</label>
     <p style="margin:0;color:var(--muted);font-weight:800;font-size:13px;white-space:pre-wrap;-webkit-user-select:text;user-select:text">${(window.__errLog || []).length ? (window.__errLog || []).slice(-10).join('\n') : 'Inga fel.'}</p>
     <label>Börja om</label>
     <div class="seg">${confirmReset ? '<button id="resetYes" class="danger">Ja, radera allt</button><button id="resetNo">Avbryt</button>' : '<button id="reset">Nollställ spelet</button>'}</div>

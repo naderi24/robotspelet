@@ -95,6 +95,7 @@ function showGarage(index) {
       <div class="chip" id="d-coins">${coinIcon()}<span>${S.drag.coins}</span></div>
       <span class="grow"></span>
       <button class="pill" id="d-tracks" data-tts="Välj bana">${ICON.flag}<span>Banor</span></button>
+      <button class="pill" id="d-learn" data-tts="Lär dig bilarna">Lär dig</button>
       <button class="pill" id="d-album" data-tts="Bilkort">Bilkort ${CARS.filter(c => known(c.id)).length}/${CARS.length}</button>
     </div>
     <div class="g-card" id="g-card"></div>
@@ -108,6 +109,7 @@ function showGarage(index) {
   api.refreshBattery();
   $('#d-home').onclick = () => api.exit();
   $('#d-album').onclick = showAlbum;
+  $('#d-learn').onclick = () => showFlash(0);
   const n = garage.list.length;
   $('#g-prev').hidden = $('#g-next').hidden = n < 2;
   $('#g-prev').onclick = () => { sfx.tap(); garage.gi = (garage.gi + n - 1) % n; showCar(true); };
@@ -147,6 +149,23 @@ function showCar(speak) {
       $('#d-coins span').textContent = S.drag.coins; showCar();
     };
   } else act.innerHTML = `<div class="g-state dim">${ICON.lock}<span>Vinn mot den</span></div>`;
+}
+// Flashcards: the photo and name on the front; tap to turn it over and hear the facts.
+function showFlash(i) {
+  sfx.tap();
+  const list = CARS.filter(c => known(c.id)), n = list.length, car = list[(i + n) % n];
+  const body = openPanel(`Lär dig bilarna (${(i % n + n) % n + 1} av ${n})`, `
+    <div class="flash" id="fl"><div class="flash-in">
+      <div class="fl-front"><img src="img/cars/${car.id}.jpg" alt="${car.name}"><b>${car.name}</b><span>Tryck för att vända kortet</span></div>
+      <div class="fl-back">${cardHTML(car)}</div></div></div>
+    <div class="fl-nav"><button class="round big" id="fl-prev" aria-label="Förra kortet">${ICON.left}</button><button class="round big" id="fl-next" aria-label="Nästa kort">${ICON.right}</button></div>
+    ${n < CARS.length ? `<p class="shop-tip" style="text-align:center">Vinn lopp för att få fler kort (${n} av ${CARS.length}).</p>` : ''}`, '#2b6cff');
+  say(car.name);
+  const fl = body.querySelector('#fl');
+  fl.onclick = e => { if (e.target.closest('button')) return; fl.classList.toggle('flipped'); sfx.tap(); if (fl.classList.contains('flipped')) readCard(car); else say(car.name); };
+  wireSpeak(body);
+  body.querySelector('#fl-prev').onclick = () => showFlash(i - 1);
+  body.querySelector('#fl-next').onclick = () => showFlash(i + 1);
 }
 function showAlbum() {
   sfx.tap();
