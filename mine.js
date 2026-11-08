@@ -2,7 +2,7 @@
 // Ores and finds open with a question. Pickaxes are built from ores and open deeper caves.
 import { THREE, S, save, $, ICON, gemIcon, coinIcon, M, E, RB, mesh, canvasTex, skyTex, makeSparks, makeMotes, createView, makeRobot, idleRobot, setLoop, sfx, say, toast, openPanel, closePanel, toScreen, flyTo, lerp, ease, clamp01, rand, pick, CALM } from './core.js';
 import { ask, cancelAsk, isAsking } from './learn.js';
-import { makeCreature, ANIMALS, MOBS } from './creatures.js';
+import { makeCreature, ANIMALS, MOBS, FISH } from './creatures.js';
 
 // t = pickaxe tier needed, h = how hard (seconds with the first pickaxe)
 export const ORES = {
@@ -83,6 +83,8 @@ export const ARMOR = [
   { n: 'Diamantrustning', c: 0x5ff4ff, block: .7, cost: { diamant: 14 } },
 ];
 const MAXHP = 5;
+const ROD_COST = { tra: 6 };
+const ROD_ICON = '<svg width="60" height="60" viewBox="0 0 64 64" aria-hidden="true"><path d="M12 56L52 8" stroke="#8a5a2c" stroke-width="5" stroke-linecap="round"/><path d="M52 8 Q58 30 50 44" stroke="#dfe3ea" stroke-width="1.5" fill="none"/><path d="M50 44 q-4 4 -1 7" stroke="#c8ccd6" stroke-width="2" fill="none"/><circle cx="48" cy="34" r="3" fill="#e8302a"/></svg>';
 const swordIcon = (c, size = 56) => `<svg width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true"><g transform="rotate(45 32 32)"><path d="M28 4h8v40h-8z" fill="${c}" stroke="rgba(0,0,0,.35)" stroke-width="2"/><path d="M28 4l4-4 4 4z" fill="${c}"/><rect x="20" y="42" width="24" height="6" rx="2" fill="#5a3a1c"/><rect x="29" y="48" width="6" height="12" rx="2" fill="#8a5a2c"/></g></svg>`;
 const armorIcon = (c, size = 56) => `<svg width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true"><path d="M14 10l10-4c2 6 14 6 16 0l10 4 6 14-8 4v28H16V28l-8-4z" fill="${c}" stroke="rgba(0,0,0,.35)" stroke-width="2" stroke-linejoin="round"/></svg>`;
 const heartSVG = full => `<svg viewBox="0 0 24 24" class="heart${full ? '' : ' empty'}" aria-hidden="true"><path d="M12 21s-8-5.2-8-11a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 10c0 5.8-8 11-8 11z"/></svg>`;
@@ -447,7 +449,7 @@ function step(dt) {
   const [sx, sy] = s, nx = bot.x + sx, ny = bot.y + sy, c = cellAt(nx, ny);
   faceTo(sx, sy);
   const who = mobAt(nx, ny);
-  if (who) { bot.target = null; who.animal ? catchAnimal(who) : fight(who); return; }
+  if (who) { bot.target = null; who.fish ? goFish(who) : who.animal ? catchAnimal(who) : fight(who); return; }
   if (!c) { W.dig = null; W.crack.visible = false; startAnim('move', sy > 0 ? .2 : .14, sx, sy); return; }
   // a block is in the way: dig only while the finger is held (and never in build mode)
   if (W.mode === 'build') { bot.target = null; return; }
@@ -506,9 +508,9 @@ const DAY = 200, NIGHT = 75; // seconds
 const mobAt = (x, y) => W && W.mobs.find(m => !m.gone && m.x === x && m.y === y);
 function ground(x, maxY) { for (let y = maxY; y > BOT + 1; y--) if (!solid(x, y) && solid(x, y - 1)) return y; return null; }
 function addCreature(kind, x, y) {
-  const animal = !!ANIMALS[kind], g = makeCreature(kind);
+  const fish = kind === 'fisk', animal = !!ANIMALS[kind] || fish, g = makeCreature(kind);
   g.scale.setScalar(.95); g.position.set(x, y - .5, 0); W.sc.add(g);
-  const m = { kind, animal, def: animal ? ANIMALS[kind] : MOBS[kind], x, y, hp: animal ? 1 : MOBS[kind].hp, g, t: Math.random() * 2, dir: Math.random() < .5 ? 1 : -1, fx: x, fy: y, k: 1 };
+  const m = { kind, animal, fish, def: fish ? FISH : animal ? ANIMALS[kind] : MOBS[kind], x, y, hp: animal ? 1 : MOBS[kind].hp, g, t: Math.random() * 2, dir: Math.random() < .5 ? 1 : -1, fx: x, fy: y, k: 1 };
   g.rotation.y = m.dir > 0 ? 0 : Math.PI; W.mobs.push(m); return m;
 }
 function removeCreature(m, poof = true) {
@@ -518,11 +520,17 @@ function removeCreature(m, poof = true) {
 }
 function moveCreature(m, nx, ny) { m.fx = m.x; m.fy = m.y; m.x = nx; m.y = ny; m.k = 0; if (nx !== m.fx) { m.dir = Math.sign(nx - m.fx); m.g.rotation.y = m.dir > 0 ? 0 : Math.PI; } }
 function creatureStep(m) {
-  if (!solid(m.x, m.y - 1) && m.y - 1 > BOT && !mobAt(m.x, m.y - 1) && !(bot.x === m.x && bot.y === m.y - 1)) { moveCreature(m, m.x, m.y - 1); return; }
+  const wet = (x, y) => W.water.has(W.key(x, y));
+  if (m.fish) { // swim to a neighbouring water cell
+    const opts = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [m.x + dx, m.y + dy]).filter(([x, y]) => wet(x, y) && !mobAt(x, y) && !(bot.x === x && bot.y === y));
+    if (opts.length) { const [x, y] = pick(opts); moveCreature(m, x, y); }
+    return;
+  }
+  if (!solid(m.x, m.y - 1) && !wet(m.x, m.y - 1) && m.y - 1 > BOT && !mobAt(m.x, m.y - 1) && !(bot.x === m.x && bot.y === m.y - 1)) { moveCreature(m, m.x, m.y - 1); return; }
   const near = !m.animal && Math.abs(bot.x - m.x) + Math.abs(bot.y - m.y) <= 9;
   const sx = near ? Math.sign(bot.x - m.x) || 0 : (Math.random() < .3 ? -m.dir : m.dir);
   if (!sx) return;
-  const nx = m.x + sx, free = (x, y) => inside(x, y) && !solid(x, y) && !mobAt(x, y) && !(bot.x === x && bot.y === y);
+  const nx = m.x + sx, free = (x, y) => inside(x, y) && !solid(x, y) && !wet(x, y) && !wet(x, y - 1) && !mobAt(x, y) && !(bot.x === x && bot.y === y);
   if (m.animal && (Math.abs(nx) === 5 || nx < X0 || nx > X1 || W.water.has(W.key(nx, m.y)))) { m.dir = -m.dir; return; }
   if (free(nx, m.y)) moveCreature(m, nx, m.y);
   else if (free(m.x, m.y + 1) && free(nx, m.y + 1) && solid(nx, m.y)) moveCreature(m, nx, m.y + 1); // climb one block
@@ -552,8 +560,12 @@ function lifeTick(dt, t) {
   W.spawnT -= dt;
   if (W.spawnT <= 0) {
     W.spawnT = 6 + Math.random() * 6;
-    const animals = W.mobs.filter(m => m.animal).length, monsters = W.mobs.filter(m => !m.animal).length;
-    if (W.L.surface && !W.wasNight && animals < 3 && Math.random() < (animals < 2 ? 1 : .5)) {
+    const animals = W.mobs.filter(m => m.animal && !m.fish).length, fishes = W.mobs.filter(m => m.fish).length, monsters = W.mobs.filter(m => !m.animal).length;
+    if (W.L.surface && fishes < 3 && W.water.size) {
+      const near = [...W.water.keys()].map(k => k.split(',').map(Number)).filter(([x, y]) => Math.abs(x - bot.x) <= 16 && !mobAt(x, y));
+      if (near.length && Math.random() < .6) { const [x, y] = pick(near); addCreature('fisk', x, y); }
+    }
+    if (W.L.surface && !W.wasNight && animals < 2 && Math.random() < (animals < 1 ? .8 : .3)) {
       const xs = []; for (let x = Math.max(X0 + 1, bot.x - 12); x <= Math.min(X1 - 1, bot.x + 12); x++) { if (Math.abs(x) === 5 || Math.abs(x - bot.x) <= 1) continue; const y = ground(x, TOP); if (y != null && y > W.H(x) && !W.water.has(W.key(x, y)) && !mobAt(x, y)) xs.push([x, y]); }
       if (xs.length) { const [x, y] = pick(xs); addCreature(pick(['ko', 'gris', 'hona']), x, y); }
     }
@@ -586,6 +598,15 @@ function animCreature(m, dt, t) {
   const e = ease(m.k), x = lerp(m.fx, m.x, e), y = lerp(m.fy, m.y, m.fy > m.y ? m.k * m.k : e);
   m.g.position.set(x, y - .5 + (m.k < 1 ? Math.sin(m.k * Math.PI) * .08 : 0), 0);
   if (m.g.userData.bob) m.g.userData.bob.position.y = (m.kind === 'slem' ? .26 : 0) + Math.sin(t * 3 + m.x) * .04;
+}
+async function goFish(m) {
+  if (!S.mine.rod) { sfx.wrong(); say('Du behöver ett fiskespö. Bygg det i verkstaden.'); toast('Du behöver ett fiskespö (Verkstaden → Fiske)', 2600); return; }
+  bot.busy = true; faceTo(Math.sign(m.x - bot.x), 0); say(m.def.say);
+  await ask({ title: 'Fiska', accent: '#2f8fff' });
+  if (!W) return;
+  removeCreature(m); sfx.gem();
+  S.mine.food = Math.min(20, (S.mine.food || 0) + m.def.food);
+  toast(`${FOODICON} +${m.def.food} mat`, 1800); save(); drawStatus(); bot.busy = false;
 }
 async function catchAnimal(m) {
   bot.busy = true; faceTo(Math.sign(m.x - bot.x), 0); say(m.def.say);
@@ -651,7 +672,7 @@ const costChips = cost => Object.entries(cost).map(([k, n]) => `<span class="cos
 function showShop(tab) {
   sfx.tap(); if (tab) shopTab = tab;
   const T = tier(), seen = Object.keys(ORES).filter(k => S.mine.seen[k]);
-  const tabs = [['tools', 'Hackor'], ['sword', 'Svärd'], ['armor', 'Rustning'], ['lamp', 'Lampa'], ['paint', 'Färger'], ['finds', 'Samling']];
+  const tabs = [['tools', 'Hackor'], ['sword', 'Svärd'], ['armor', 'Rustning'], ['rod', 'Fiske'], ['lamp', 'Lampa'], ['paint', 'Färger'], ['finds', 'Samling']];
   const gearShelf = (list, cur, kind, icon, note) => `<div class="shelf">${list.map((it, i) => {
     const st = i < cur ? 'done' : i === cur ? 'mine' : i === cur + 1 ? 'next' : 'later';
     return `<div class="item ${st}" style="--ic:${hexs(it.c)}">${st === 'mine' ? `<span class="badge">${kind === 'sword' ? 'Ditt svärd' : 'Din rustning'}</span>` : ''}
@@ -672,6 +693,10 @@ function showShop(tab) {
     <p class="shop-tip">Bättre hackor gräver snabbare, kan bryta hårdare stenar och öppnar nya grottor i hissen.</p>`;
   if (shopTab === 'sword') content = gearShelf(SWORDS, S.mine.sword || 0, 'sword', swordIcon, it => `${it.dmg} ${it.dmg === 1 ? 'slag' : 'slag'} per rätt svar`) + '<p class="shop-tip">Ett bättre svärd gör striderna kortare.</p>';
   if (shopTab === 'armor') content = gearShelf(ARMOR, S.mine.armor || 0, 'armor', armorIcon, it => it.block ? `Skyddar ofta` : 'Inget skydd') + '<p class="shop-tip">Rustning kan stoppa monstrens slag. Läder får du från kor.</p>';
+  if (shopTab === 'rod') content = `<div class="shelf"><div class="item ${S.mine.rod ? 'mine' : 'next'}" style="--ic:#8a5a2c">${S.mine.rod ? '<span class="badge">Ditt spö</span>' : ''}
+      <div class="item-art">${ROD_ICON}</div><b>Fiskespö</b><div class="mines"><span>Fånga fisk i sjöarna</span></div>
+      ${S.mine.rod ? `<div class="item-note ok">${ICON.check}</div>` : `<div class="costs">${costChips(ROD_COST)}</div><button class="pill strong${canAfford(ROD_COST) ? '' : ' dim'}" data-buy="rod" data-i="0">Bygg</button>`}</div></div>
+    <p class="shop-tip">Gå fram till en fisk i vattnet och tryck på den. Fisk ger mycket mat.</p>`;
   if (shopTab === 'lamp') { const ml = S.mine.lamp || 0; content = `<div class="shelf">${LAMPS.map((lp, i) => {
     const st = i < ml ? 'done' : i === ml ? 'mine' : i === ml + 1 ? 'next' : 'later';
     return `<div class="item ${st}" style="--ic:#ffe08a">
@@ -690,6 +715,11 @@ function showShop(tab) {
   body.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => showShop(b.dataset.tab));
   body.querySelectorAll('[data-buy]').forEach(b => b.onclick = () => {
     const i = +b.dataset.i, kind = b.dataset.buy, isTool = kind === 'tool', item = isTool ? TOOLS[i] : kind === 'sword' ? SWORDS[i] : kind === 'armor' ? ARMOR[i] : LAMPS[i];
+    if (kind === 'rod') {
+      if (!canAfford(ROD_COST)) { sfx.wrong(); say('Du behöver fler stenar.'); return; }
+      pay(ROD_COST); S.mine.rod = true; sfx.unlock(); say('Fiskespö!'); toast(`${ROD_ICON.replace('width="60" height="60"', 'width="26" height="26"')} Fiskespö!`, 2000);
+      persist(); save(); showShop(); return;
+    }
     if (kind === 'sword' || kind === 'armor') {
       if (!canAfford(item.cost)) { sfx.wrong(); say('Du behöver fler stenar.'); return; }
       pay(item.cost); sfx.unlock(); S.mine[kind] = i; gearRobot(); say(`${item.n}!`); toast(`${(kind === 'sword' ? swordIcon : armorIcon)(hexs(item.c), 26)} ${item.n}!`, 2200);

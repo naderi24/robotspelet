@@ -361,7 +361,7 @@ button:focus-visible{outline:3px solid #fff;outline-offset:3px}
 <div id="glLost" class="screen" hidden style="z-index:96;background:#0b0e1a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;font-family:var(--display)"><p style="font-size:24px;margin:0">Oj! Spelet behöver startas om.</p><button class="pill strong" onclick="location.reload()">Starta om</button></div>
 <div id="home" class="screen">
   <div class="h-top">
-    <h1>Robotspelet</h1><span id="ver" style="font-size:11px;color:#6b7194;font-weight:800;align-self:flex-end;margin-bottom:6px">v14</span>
+    <h1>Robotspelet</h1><span id="ver" style="font-size:11px;color:#6b7194;font-weight:800;align-self:flex-end;margin-bottom:6px">v15</span>
     <div class="chip" data-batt><b class="batt"><i></i></b><span></span></div>
     <span class="grow"></span>
     <button class="round" id="musicBtn" aria-label="Musik på eller av"></button>
@@ -525,7 +525,7 @@ function settings(confirmReset = false) {
     <p style="margin:0;color:var(--muted);font-weight:800;font-size:14px">Framstegen sparas på kontot när spelet öppnas inloggad, annars i den här webbläsaren.</p>
     <label>Grafik</label>
     <div class="seg" id="gfx"><button data-g="lite" class="${isLite() ? 'on' : ''}">Snabb (för äldre telefoner)</button><button data-g="nice" class="${isLite() ? '' : 'on'}">Snygg</button></div>
-    <label>Felrapport · version 14</label>
+    <label>Felrapport · version 15</label>
     <p style="margin:0;color:var(--muted);font-weight:800;font-size:13px;white-space:pre-wrap;-webkit-user-select:text;user-select:text">${(window.__errLog || []).length ? (window.__errLog || []).slice(-10).join('\n') : 'Inga fel.'}</p>
     <label>Börja om</label>
     <div class="seg">${confirmReset ? '<button id="resetYes" class="danger">Ja, radera allt</button><button id="resetNo">Avbryt</button>' : '<button id="reset">Nollställ spelet</button>'}</div>

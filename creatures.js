@@ -7,6 +7,7 @@ export const ANIMALS = {
   hona: { n: 'Höna', say: 'En höna!', food: 1 },
 };
 // hp = how many sword hits it takes
+export const FISH = { n: 'Fisk', say: 'En fisk!', food: 2 };
 export const MOBS = {
   zombie: { n: 'Zombie', say: 'En zombie!', hp: 3 },
   skelett: { n: 'Skelett', say: 'Ett skelett!', hp: 2 },
@@ -55,6 +56,12 @@ export function makeCreature(kind) {
     const blob = new THREE.Mesh(new THREE.SphereGeometry(.32, 18, 12), new THREE.MeshStandardMaterial({ color: 0x5fd06a, roughness: .2, transparent: true, opacity: .8, emissive: 0x1a5020, emissiveIntensity: .6 }));
     blob.scale.set(1.1, .78, .9); blob.position.y = .26; g.add(blob); bob = blob;
     for (const z of [-.09, .09]) { const e = new THREE.Mesh(new THREE.SphereGeometry(.05, 10, 8), mat(0x102010)); e.position.set(.3, .32, z); g.add(e); }
+  } else if (kind === 'fisk') {
+    const body = new THREE.Group(); g.add(body); bob = body;
+    const fm = (geo, c, x, y, z) => { const m = new THREE.Mesh(geo, mat(c)); m.position.set(x, y, z); body.add(m); return m; };
+    const b1 = fm(new THREE.SphereGeometry(.16, 14, 10), 0xff8a3d, 0, .45, 0); b1.scale.set(1.5, .9, .6);
+    const tail = fm(new THREE.ConeGeometry(.12, .2, 4), 0xff6a1a, -.27, .45, 0); tail.rotation.z = -Math.PI / 2;
+    fm(new THREE.BoxGeometry(.1, .08, .02), 0xffffff, .02, .45, .1); fm(new THREE.SphereGeometry(.03, 8, 6), 0x111111, .14, .48, .08);
   } else if (kind === 'spokbot') {
     const body = new THREE.Group(); g.add(body); bob = body;
     const m2 = (w, h, d, c, x, y, z, glow) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(c, glow)); m.position.set(x, y, z); body.add(m); return m; };
