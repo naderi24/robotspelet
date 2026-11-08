@@ -288,9 +288,9 @@ function faQuestion() {
   const wordsQ = (list, pool) => {
     const t = pick(list.filter(w => (F.w[w[0]] || 0) < 2).length ? list.filter(w => (F.w[w[0]] || 0) < 2) : list);
     const others = shuffle(pool.filter(w => w !== t && w[1] !== t[1])).slice(0, 2);
-    if (F.stage >= 3 && Math.random() < .5) { const arr = shuffle([t, ...others]); return { fa: true, item: { k: 'w', id: t[0] }, after: t[0], hint: faBig(FA_PHRASES.picWord), big: `<span class="emo">${t[1]}</span>`, say: FA_PHRASES.picWord, answers: arr.map((w, i) => ({ label: faBig(w[0]), aria: w[0], cls: 'txt fa-ans', c: BTN[i][0], d: BTN[i][1] })), correct: arr.indexOf(t) }; }
+    if (F.stage >= 3 && Math.random() < .5) { const arr = shuffle([t, ...others]); return { fa: true, item: { k: 'w', id: t[0] }, after: t[0], hint: 'Vilket ord?', big: `<span class="emo">${t[1]}</span>`, say: FA_PHRASES.picWord, answers: arr.map((w, i) => ({ label: faBig(w[0]), aria: w[0], cls: 'txt fa-ans', c: BTN[i][0], d: BTN[i][1] })), correct: arr.indexOf(t) }; }
     const arr = shuffle([t, ...others]);
-    return { fa: true, item: { k: 'w', id: t[0] }, after: t[0], hint: faBig(FA_PHRASES.wordPic), big: `<span class="fa fa-word">${t[0]}</span>`, word: true, say: FA_PHRASES.wordPic, answers: arr.map(w => ({ label: w[1], aria: 'bild', cls: 'pic', c: '#ffffff', d: '#d9d4ea' })), correct: arr.indexOf(t) };
+    return { fa: true, item: { k: 'w', id: t[0] }, after: t[0], hint: 'Vilken bild?', big: `<span class="fa fa-word">${t[0]}</span>`, word: true, say: FA_PHRASES.wordPic, answers: arr.map(w => ({ label: w[1], aria: 'bild', cls: 'pic', c: '#ffffff', d: '#d9d4ea' })), correct: arr.indexOf(t) };
   };
   if (F.stage >= 1 && Math.random() > .1) {
     const list = F.stage === 1 ? FA_WORDS1 : F.stage === 2 ? [...FA_WORDS2, ...FA_WORDS1.slice(0, 6)] : [...FA_WORDS1, ...FA_WORDS2];
@@ -302,10 +302,10 @@ function faQuestion() {
   const others = shuffle(pool).slice(0, 2);
   if ((F.m[L[0]] || 0) >= 1 && Math.random() < .35) { // see the letter, pick the picture that starts with it
     const arr = shuffle([L, ...others]);
-    return { fa: true, item: { k: 'l', id: L[0] }, after: L[2], hint: faBig(FA_PHRASES.starts), big: `<span class="fa fa-letter">${L[0]}</span>`, say: FA_PHRASES.starts, answers: arr.map(x => ({ label: x[3], aria: x[2], cls: 'pic', c: '#ffffff', d: '#d9d4ea' })), correct: arr.indexOf(L) };
+    return { fa: true, item: { k: 'l', id: L[0] }, after: L[2], hint: 'Vilken bild börjar så?', big: `<span class="fa fa-letter">${L[0]}</span>`, say: FA_PHRASES.starts, answers: arr.map(x => ({ label: x[3], aria: x[2], cls: 'pic', c: '#ffffff', d: '#d9d4ea' })), correct: arr.indexOf(L) };
   }
   const arr = shuffle([L, ...others]); // hear the letter, pick it
-  return { fa: true, item: { k: 'l', id: L[0] }, hint: faBig(FA_PHRASES.which), big: `<span class="emo">${L[3]}</span>`, say: faLetterSay(L), answers: arr.map((x, i) => ({ label: faBig(x[0]), aria: x[1], cls: 'txt fa-ans fa-l', c: BTN[i][0], d: BTN[i][1] })), correct: arr.indexOf(L) };
+  return { fa: true, item: { k: 'l', id: L[0] }, hint: 'Vilken bokstav?', big: `<span class="emo">${L[3]}</span>`, say: faLetterSay(L), answers: arr.map((x, i) => ({ label: faBig(x[0]), aria: x[1], cls: 'txt fa-ans fa-l', c: BTN[i][0], d: BTN[i][1] })), correct: arr.indexOf(L) };
 }
 function faRecord(item, wrongs) {
   const F = fa(), tbl = item.k === 'l' ? F.m : F.w;
