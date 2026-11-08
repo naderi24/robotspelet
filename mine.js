@@ -40,7 +40,8 @@ const PAINTS = [
   { n: 'Silver', c: 0xd8dde6, cost: { jarn: 12 } }, { n: 'Guld', c: 0xffc83d, cost: { guld: 15 } }, { n: 'Kristall', c: 0x5ff4ff, cost: { diamant: 12 } },
   { n: 'Smaragd', c: 0x169a45, cost: { smaragd: 12 } }, { n: 'Rubin', c: 0xff2d55, cost: { rubin: 12 } }, { n: 'Rymd', c: 0x8a5cff, cost: { stjarnsten: 12 } }, { n: 'Regnbåge', c: 0xff6bd6, cost: { regnbage: 12 } },
 ];
-const X0 = -6, X1 = 6, BOT = -34;
+const X0 = -48, X1 = 47, BOT = -62; // a large world: 96 columns, about 60 rows deep
+const WORLD_V = 2;
 let TOP = 2; // highest row the robot can reach (higher above ground, so there is sky to build in)
 // Building blocks: everything he digs goes into the backpack and can be placed again.
 export const BLOCKS = {
@@ -142,7 +143,8 @@ const isSpecial = t => !!ORES[t] || t === 'chest' || t === 'find';
 function persist() { if (W && bot) S.mine.worlds[W.li] = { seed: W.seed, dug: [...W.dug], placed: { ...W.placed }, x: bot.x, y: bot.y }; }
 function buildWorld(li, fresh = false) {
   const L = LAYERS[li], sc = new THREE.Scene();
-  TOP = L.surface ? 7 : 2;
+  TOP = L.surface ? 12 : 2;
+  if (S.mine.worldV !== WORLD_V) { S.mine.worlds = {}; S.mine.worldV = WORLD_V; }
   const saved = !fresh && S.mine.worlds[li];
   const seed = saved ? saved.seed : Math.floor(Math.random() * 1e9);
   const r = rng(seed);
@@ -170,53 +172,61 @@ function buildWorld(li, fresh = false) {
     mats.grass = [sm, sm, tm, mats.b0, sm, sm];
   }
   const grid = new Map(), key = (x, y) => x + ',' + y, put = (x, y, t) => grid.set(key(x, y), { x, y, t });
-  const oreP = y => .035 + .025 * clamp01((-y) / 30);
-  for (let x = X0 - 7; x <= X1 + 7; x++) for (let y = BOT - 2; y <= (L.surface ? 0 : TOP + 4); y++) {
-    const ins = x >= X0 && x <= X1 && y >= BOT && y <= TOP;
-    if (ins && y >= 1) continue;
-    if (!ins) { if (y >= 1 && L.surface) continue; put(x, y, 'edge'); continue; }
-    if (y === BOT) { put(x, y, 'edge'); continue; }
-    let t = L.surface && y === 0 ? 'grass' : (Math.sin(x * .7 + y * .4) + Math.sin(y * .33 - x * .21) > (L.surface ? .2 + y * .04 : .9)) ? 'b1' : 'b0';
-    if (t !== 'grass' && y < -1 && r() < oreP(y)) t = pickOre(L, r);
-    put(x, y, t);
+  const oreP = y => .035 + .025 * clamp01((-y) / 50);
+  // terrain: rolling hills above ground, flat around the station, lakes in the dips
+  const tr = rng(seed + 7), ph = [tr() * 6.28, tr() * 6.28, tr() * 6.28];
+  const H = x => { if (!L.surface) return 0; x = Math.max(X0, Math.min(X1, x)); const flat = clamp01((Math.abs(x) - 7) / 6); const h = 2.4 * Math.sin(x * .11 + ph[0]) + 1.5 * Math.sin(x * .23 + ph[1]) + 1.1 * Math.sin(x * .05 + ph[2]); return Math.round(Math.max(-3, Math.min(6, h)) * flat); };
+  const cave = (x, y) => Math.sin(x * .21 + y * .13) + Math.sin(x * .07 - y * .29 + 1.3) + Math.sin((x + y) * .17 + 2.1) + .6 * Math.sin(x * .5 - y * .4 + ph[0]) > 2.0;
+  for (let x = X0 - 3; x <= X1 + 3; x++) {
+    const h = H(x), yTop = L.surface ? Math.max(h, 0) : TOP + 4;
+    for (let y = BOT - 2; y <= yTop; y++) {
+      const ins = x >= X0 && x <= X1 && y >= BOT && y <= TOP;
+      if (L.surface && y > h) continue; // air (or lake, filled below)
+      if (!L.surface && ins && y >= 1) continue; // station room
+      if (!ins || y === BOT) { put(x, y, 'edge'); continue; }
+      const roof = L.surface ? h - 6 : -5;
+      if (y < roof && y > BOT + 1 && cave(x, y)) continue; // open caves
+      let t;
+      if (L.surface) t = y === h && h >= 0 ? 'grass' : y > h - 3 ? 'b0' : (Math.sin(x * .7 + y * .4) + Math.sin(y * .33 - x * .21) > .6 + y * .02) ? 'b1' : 'b0';
+      else t = (Math.sin(x * .7 + y * .4) + Math.sin(y * .33 - x * .21) > .9) ? 'b1' : 'b0';
+      if (t !== 'grass' && y < (L.surface ? h - 2 : -1) && r() < oreP(y)) t = pickOre(L, r);
+      put(x, y, t);
+    }
   }
   for (const c of [...grid.values()]) if (ORES[c.t] && r() < .3) { const n = grid.get(key(c.x + (r() < .5 ? 1 : 0), c.y - (r() < .5 ? 1 : 0))); if (n && (n.t === 'b0' || n.t === 'b1') && n.x >= X0 && n.x <= X1 && n.y > BOT) n.t = c.t; }
-  const placeRare = (t, p) => { if (r() < p) { const c = grid.get(key(X0 + Math.floor(r() * 13), -8 - Math.floor(r() * 22))); if (c && c.t !== 'edge') c.t = t; } };
-  placeRare('chest', .3); placeRare('find', .45);
+  const placeRare = (t, tries, p) => { for (let i = 0; i < tries; i++) if (r() < p) { const x = X0 + 2 + Math.floor(r() * (X1 - X0 - 4)), c = grid.get(key(x, Math.min(H(x) - 8, -8) - Math.floor(r() * 40))); if (c && c.t !== 'edge') c.t = t; } };
+  placeRare('chest', 4, .5); placeRare('find', 5, .6);
   const placed = saved && saved.placed ? { ...saved.placed } : {};
-  // a small hill on one side and a pond on the other (own random stream so ores stay put)
   const waterCells = [];
-  if (L.surface) {
-    const tr = rng(seed + 7), hillLeft = tr() < .5, hc = hillLeft ? -3 : 3, pc = -hc;
-    for (const dx of [-1, 0, 1]) { put(hc + dx, 1, 'grass'); const below = grid.get(key(hc + dx, 0)); if (below) below.t = 'b0'; }
-    put(hc, 2, 'grass'); grid.get(key(hc, 1)).t = 'b0';
-    for (const dx of [-1, 0, 1]) { grid.delete(key(pc + dx, 0)); waterCells.push([pc + dx, 0]); }
-    grid.delete(key(pc, -1)); waterCells.push([pc, -1]);
-  }
+  if (L.surface) for (let x = X0; x <= X1; x++) { const h = H(x); for (let y = h + 1; y <= 0; y++) waterCells.push([x, y]); }
   const treeKeys = [];
-  if (L.surface) for (const tx of [X0, X1]) {
-    for (let y = 1; y <= 3; y++) { put(tx, y, 'log'); treeKeys.push(key(tx, y)); }
-    for (let dx = -1; dx <= 1; dx++) for (let y = 4; y <= 5; y++) { put(tx + dx, y, 'leaf'); treeKeys.push(key(tx + dx, y)); }
-    put(tx, 6, 'leaf'); treeKeys.push(key(tx, 6));
+  if (L.surface) for (let x = X0 + 3; x <= X1 - 3; x += 6 + Math.floor(tr() * 7)) {
+    const h = H(x); if (Math.abs(x) <= 9 || h < 0 || H(x - 1) < 0 || H(x + 1) < 0) continue;
+    for (let y = h + 1; y <= h + 3; y++) { put(x, y, 'log'); treeKeys.push(key(x, y)); }
+    for (let dx = -1; dx <= 1; dx++) for (let y = h + 4; y <= h + 5; y++) { put(x + dx, y, 'leaf'); treeKeys.push(key(x + dx, y)); }
+    put(x, h + 6, 'leaf'); treeKeys.push(key(x, h + 6));
   }
   const dug = new Set(saved ? saved.dug : []);
   treeKeys.forEach(k => { if (!placed[k]) dug.delete(k); }); // trees grow back between visits
   dug.forEach(k => grid.delete(k));
   Object.keys(placed).forEach(k => { if (grid.has(k)) delete placed[k]; });
+  // all blocks of one kind are drawn together, so thousands of blocks stay cheap
   const box = new THREE.BoxGeometry(1, 1, 1), groups = {}, o = new THREE.Object3D();
   for (const c of grid.values()) (groups[c.t] = groups[c.t] || []).push(c);
   const ims = {};
   for (const t in groups) {
     const list = groups[t], im = new THREE.InstancedMesh(box, mats[t], list.length);
     list.forEach((c, i) => { o.position.set(c.x, c.y, 0); o.updateMatrix(); im.setMatrixAt(i, o.matrix); c.i = i; });
-    im.receiveShadow = true; sc.add(im); ims[t] = im;
+    im.computeBoundingSphere(); im.receiveShadow = true; sc.add(im); ims[t] = im;
   }
   const water = new Map(), waterM = new THREE.MeshStandardMaterial({ color: 0x2f8fff, transparent: true, opacity: .55, roughness: .1, metalness: .1, emissive: 0x0a2a5a, emissiveIntensity: .5, depthWrite: false });
-  for (const [x, y] of waterCells) { const k = key(x, y); if (placed[k] || dug.has(k + 'w')) continue; water.set(k, mesh(new THREE.BoxGeometry(1, y === 0 ? .86 : 1, 1), waterM, x, y - (y === 0 ? .07 : 0), 0, sc)); }
+  const waterTop = new THREE.BoxGeometry(1, .86, 1), waterFull = new THREE.BoxGeometry(1, 1, 1);
+  for (const [x, y] of waterCells) { const k = key(x, y); if (placed[k] || grid.has(k)) continue; water.set(k, mesh(y === 0 ? waterTop : waterFull, waterM, x, y - (y === 0 ? .07 : 0), 0, sc)); }
   for (const [k, t] of Object.entries(placed)) { const [x, y] = k.split(',').map(Number); const m = mesh(box, mats['p_' + t], x, y, 0, sc); m.receiveShadow = true; grid.set(k, { x, y, t: 'p_' + t, mesh: m }); }
-  const yMin = BOT - 2, yMax = L.surface ? .5 : TOP + 5;
-  const bt = pix(L.base.map(c => shade(c, -.45)), r); bt.wrapS = bt.wrapT = THREE.RepeatWrapping; bt.repeat.set(30, yMax - yMin);
-  mesh(new THREE.PlaneGeometry(30, yMax - yMin), M(0xffffff, { map: bt, roughness: 1 }), 0, (yMin + yMax) / 2, -.5, sc);
+  const yMin = BOT - 2, yMax = L.surface ? .5 : TOP + 5, wide = X1 - X0 + 9;
+  const bt = pix(L.base.map(c => shade(c, -.45)), r); bt.wrapS = bt.wrapT = THREE.RepeatWrapping; bt.repeat.set(wide, yMax - yMin);
+  mesh(new THREE.PlaneGeometry(wide, yMax - yMin), M(0xffffff, { map: bt, roughness: 1 }), (X0 + X1) / 2, (yMin + yMax) / 2, -.5, sc);
+  sc.userData.H = H;
   decorate(sc, L);
   // aim outline and cracks
   const outline = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.02, 1.02, 1.02)), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: .85 }));
@@ -231,14 +241,15 @@ function buildWorld(li, fresh = false) {
   W = { li, L, sc, grid, ims, key, lamp, hemi, front, R, chips, glints, motes, mats, o, seed, dug, placed, box, outline, crack, cracks, water, waterM, camY: 1.5, camX: 0, swingBase: -1.3, held: false, dig: null, mode: 'dig',
     mobs: [], clock: 25, spawnT: 1.5, regenT: 0, wasNight: false, dayBg: sc.background, ambI: L.amb[2] };
   if (L.surface) {
-    W.moon = mesh(new THREE.CircleGeometry(1.6, 32), new THREE.MeshBasicMaterial({ color: 0xe8ecff, fog: false }), -8, 8.5, -12, sc); W.moon.visible = false;
-    W.stars = makeMotes(sc, 160, [-24, 24, 4, 16, -11.5, -11], 0xffffff, .12, { speed: 0, opacity: 0 }); W.sun = sc.userData.sun;
+    W.moon = mesh(new THREE.CircleGeometry(1.6, 32), new THREE.MeshBasicMaterial({ color: 0xe8ecff, fog: false }), -8, 8.5, -12, sc.userData.sky); W.moon.visible = false;
+    W.stars = makeMotes(sc.userData.sky, 160, [-24, 24, 4, 16, -11.5, -11], 0xffffff, .12, { speed: 0, opacity: 0 }); W.sun = sc.userData.sun;
     W.nightBg = new THREE.Color(0x0b1030); W.dayFog = new THREE.Color(0xcfeaff);
   }
   gearRobot();
   bot = { x: 0, y: 1, anim: null, target: null, busy: false };
   if (saved && saved.y <= TOP && saved.y > BOT && !grid.has(key(saved.x, saved.y))) { bot.x = saved.x; bot.y = saved.y; }
-  R.position.set(bot.x, bot.y - .5, 0); W.camY = Math.min(1.8, bot.y + .4); W.camX = Math.max(-2.5, Math.min(2.5, bot.x * .55));
+  R.position.set(bot.x, bot.y - .5, 0); W.camY = bot.y + .9; W.camX = Math.max(X0 + 7, Math.min(X1 - 7, bot.x));
+  W.H = sc.userData.H; W.sky = sc.userData.sky; W.specials = [...grid.values()].filter(c => isSpecial(c.t));
   persist(); save();
   view.camera.fov = 40; view.camera.updateProjectionMatrix();
   updateHud(); drawStatus();
@@ -246,13 +257,17 @@ function buildWorld(li, fresh = false) {
   else setTimeout(() => say(L.n), 300);
   setLoop(loop);
 }
+function scatter(sc, geo, mat, n, place) {
+  const im = new THREE.InstancedMesh(geo, mat, n), o = new THREE.Object3D();
+  for (let i = 0; i < n; i++) { o.position.set(0, 0, 0); o.rotation.set(0, 0, 0); o.scale.set(1, 1, 1); place(o, i); o.updateMatrix(); im.setMatrixAt(i, o.matrix); }
+  im.computeBoundingSphere(); sc.add(im); return im;
+}
 function decorate(sc, L) {
+  const sky = new THREE.Group(); sc.add(sky); sc.userData.sky = sky; // follows the camera, so it never runs out
   if (L.surface) {
-    sc.userData.sun = mesh(new THREE.CircleGeometry(2.2, 32), new THREE.MeshBasicMaterial({ color: 0xfff3c4, fog: false }), 9, 9, -12, sc);
+    sc.userData.sun = mesh(new THREE.CircleGeometry(2.2, 32), new THREE.MeshBasicMaterial({ color: 0xfff3c4, fog: false }), 9, 9, -12, sky);
     const hillM = M(0x5fbf3c, { roughness: 1, flatShading: true });
-    for (let i = 0; i < 6; i++) { const h = mesh(new THREE.SphereGeometry(6 + Math.random() * 5, 16, 8), hillM, -20 + i * 8, -2.5, -14 - Math.random() * 4, sc); h.scale.y = .45; }
-    const trunk = M(0x6b4426), leaf = M(0x3aa83a, { roughness: .9 });
-    for (const tx of [-10, -8.5, 8.5, 10.5]) { const g = new THREE.Group(); g.position.set(tx, .5, -.8); sc.add(g); for (let y = 0; y < 3; y++) mesh(new THREE.BoxGeometry(1, 1, 1), trunk, 0, y + .5, 0, g); for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (let y = 3; y <= 4; y++) if (!(Math.abs(dx) + Math.abs(dz) === 2 && y === 4)) mesh(new THREE.BoxGeometry(1, 1, 1), leaf, dx, y + .5, dz, g); }
+    for (let i = 0; i < 6; i++) { const h = mesh(new THREE.SphereGeometry(6 + Math.random() * 5, 16, 8), hillM, -20 + i * 8, -2.5, -14 - Math.random() * 4, sky); h.scale.y = .45; }
   } else {
     for (const x of [-3, 3]) { mesh(new THREE.BoxGeometry(.1, 1.4, .1), M(0x5a3a1c), x, 1.2, -.3, sc); mesh(new THREE.BoxGeometry(.3, .3, .3), E(0xffc070, 3), x, 2, -.3, sc); }
   }
@@ -263,11 +278,11 @@ function decorate(sc, L) {
   mesh(RB(1, .12, .7, .03), M(0x8a5a2c), 5, 1.05, -.1, sc); for (const dx of [-.4, .4]) mesh(new THREE.BoxGeometry(.08, .5, .08), M(0x6b4426), 5 + dx, .75, -.1, sc);
   mesh(new THREE.BoxGeometry(.4, .25, .3), M(0x3a3f4a, { metalness: .8 }), 5.1, 1.25, -.1, sc);
   mesh(new THREE.PlaneGeometry(.5, .3), E(0x7fd8ff, 1.5), 4.75, 1.45, .01, sc);
-  const z = -.46;
-  if (L.torches) for (let i = 0; i < 14; i++) { const x = rand(-6, 6), y = rand(BOT + 2, -2); mesh(new THREE.BoxGeometry(.08, .3, .02), M(0x6b4426), x, y, z, sc); mesh(new THREE.BoxGeometry(.12, .12, .02), E(0xffb347, 4), x, y + .18, z, sc); }
-  if (L.crystals) for (let i = 0; i < 40; i++) { const c = mesh(new THREE.OctahedronGeometry(.18 + Math.random() * .2, 0), E(pick([0x6ff7ff, 0xa58bff, 0x5f8cff]), 2), rand(-6, 6) + Math.random() - .5, rand(BOT + 1, -1) + Math.random() - .5, z, sc); c.scale.y = 1.8; c.rotation.z = Math.random() - .5; }
-  if (L.lava) for (let i = 0; i < 16; i++) mesh(new THREE.PlaneGeometry(.6 + Math.random() * 1.6, .25), E(0xff5a1a, 2.4), rand(-6, 6), rand(BOT + 1, -2) - .4, z, sc);
-  if (L.stars) makeMotes(sc, 300, [-14, 14, BOT - 2, TOP + 4, -.47, -.46], 0xffffff, .08, { speed: 0 });
+  const z = -.46, rx = () => X0 + Math.random() * (X1 - X0), ry = () => BOT + 2 + Math.random() * (-4 - BOT);
+  if (L.torches) { const pos = Array.from({ length: 70 }, () => [Math.round(rx()), Math.round(ry())]); scatter(sc, new THREE.BoxGeometry(.08, .3, .02), M(0x6b4426), pos.length, (o, i) => o.position.set(pos[i][0], pos[i][1], z)); scatter(sc, new THREE.BoxGeometry(.12, .12, .02), E(0xffb347, 4), pos.length, (o, i) => o.position.set(pos[i][0], pos[i][1] + .18, z)); }
+  if (L.crystals) for (const col of [0x6ff7ff, 0xa58bff, 0x5f8cff]) scatter(sc, new THREE.OctahedronGeometry(.25, 0), E(col, 2), 60, o => { o.position.set(rx(), ry(), z); o.scale.set(.8 + Math.random() * .6, 1.6 + Math.random(), .8); o.rotation.z = Math.random() - .5; });
+  if (L.lava) scatter(sc, new THREE.PlaneGeometry(1, .25), E(0xff5a1a, 2.4), 90, o => { o.position.set(rx(), ry() - .4, z); o.scale.x = .6 + Math.random() * 1.6; });
+  if (L.stars) makeMotes(sc, 1200, [X0 - 4, X1 + 4, BOT - 2, TOP + 4, -.47, -.46], 0xffffff, .08, { speed: 0 });
 }
 
 /* ================= HUD ================= */
@@ -472,14 +487,15 @@ function loop(dt, t) {
   if (!W.held && !W.dig && W.outline.visible && performance.now() - W.pressT > 900) W.outline.visible = false;
   idleRobot(R, t, 0, .6);
   W.lamp.position.set(R.position.x, R.position.y + 1, 1.4);
-  if (W.L.surface) W.hemi.intensity = lerp(1.0, .3, clamp01(Math.max(0, 1 - bot.y) / 6));
-  W.camY = lerp(W.camY, Math.min(W.L.surface ? 5 : 1.8, R.position.y + (W.L.surface && bot.y >= 0 ? 1.7 : .9)), Math.min(1, dt * 3));
-  W.camX = lerp(W.camX, Math.max(-2.5, Math.min(2.5, R.position.x * .55)), Math.min(1, dt * 3));
+  if (W.L.surface && !W.night) W.hemi.intensity = lerp(1.0, .3, clamp01(Math.max(0, W.H(bot.x) + 1 - bot.y) / 6));
+  W.camY = lerp(W.camY, Math.min(W.L.surface ? TOP - 3 : 1.8, R.position.y + (W.L.surface && bot.y >= W.H(bot.x) ? 1.5 : .9)), Math.min(1, dt * 3));
+  W.camX = lerp(W.camX, Math.max(X0 + 7, Math.min(X1 - 7, R.position.x)), Math.min(1, dt * 3));
+  W.sky.position.x = W.camX;
   view.camera.position.set(W.camX, W.camY + .4, 10.5); view.camera.lookAt(W.camX, W.camY, 0);
   for (const [k] of W.L.ores) W.mats[k].emissiveIntensity = ORES[k].e * (.8 + Math.sin(t * 2) * .2);
-  if (Math.random() < .03 && !CALM) { const cs = [...W.grid.values()].filter(c => isSpecial(c.t) && Math.abs(c.y - bot.y) < 6); if (cs.length) { const c = pick(cs); W.glints.burst(new THREE.Vector3(c.x + (Math.random() - .5) * .8, c.y + (Math.random() - .5) * .8, .52), 1, .2, ['#ffffff']); } }
+  if (Math.random() < .2 && !CALM && W.specials.length) { const c = pick(W.specials); if (W.grid.get(W.key(c.x, c.y)) === c && Math.abs(c.y - bot.y) < 6 && Math.abs(c.x - bot.x) < 12) W.glints.burst(new THREE.Vector3(c.x + (Math.random() - .5) * .8, c.y + (Math.random() - .5) * .8, .52), 1, .2, ['#ffffff']); }
   W.chips.update(dt); W.glints.update(dt); W.motes.update(dt);
-  W.motes.points.position.y = R.position.y;
+  W.motes.points.position.set(R.position.x, R.position.y, 0);
   if (W.water.size) W.waterM.opacity = .5 + Math.sin(t * 1.5) * .06;
   lifeTick(dt, t);
   view.render();
@@ -507,7 +523,7 @@ function creatureStep(m) {
   const sx = near ? Math.sign(bot.x - m.x) || 0 : (Math.random() < .3 ? -m.dir : m.dir);
   if (!sx) return;
   const nx = m.x + sx, free = (x, y) => inside(x, y) && !solid(x, y) && !mobAt(x, y) && !(bot.x === x && bot.y === y);
-  if (m.animal && (W.L.surface && (Math.abs(nx) === 5 || nx < X0 || nx > X1))) { m.dir = -m.dir; return; }
+  if (m.animal && (Math.abs(nx) === 5 || nx < X0 || nx > X1 || W.water.has(W.key(nx, m.y)))) { m.dir = -m.dir; return; }
   if (free(nx, m.y)) moveCreature(m, nx, m.y);
   else if (free(m.x, m.y + 1) && free(nx, m.y + 1) && solid(nx, m.y)) moveCreature(m, nx, m.y + 1); // climb one block
   else m.dir = -m.dir;
@@ -519,7 +535,7 @@ function lifeTick(dt, t) {
     if (!busy) W.clock += dt;
     const c = W.clock % (DAY + NIGHT), target = c > DAY ? 1 : 0;
     W.night = lerp(W.night || 0, target, Math.min(1, dt * .4));
-    const n = W.night, deep = clamp01(Math.max(0, 1 - bot.y) / 6);
+    const n = W.night, deep = clamp01(Math.max(0, W.H(bot.x) + 1 - bot.y) / 6);
     W.sc.background = n > .5 ? W.nightBg : W.dayBg;
     W.sc.fog.color.lerpColors(W.dayFog, W.nightBg, n);
     W.hemi.intensity = lerp(1.0, .3, deep) * (1 - .72 * n); W.front.intensity = 1.6 * (1 - .8 * n);
@@ -528,7 +544,7 @@ function lifeTick(dt, t) {
     if (isNight !== W.wasNight) {
       W.wasNight = isNight; drawStatus();
       if (isNight) { say('Natten kommer! Bygg ett hus eller gå ner i gruvan.'); toast('Natten kommer. Monster kan komma fram!', 2800); }
-      else { say('Det blir morgon!'); W.mobs.filter(m => !m.animal && m.y >= 0).forEach(m => removeCreature(m)); }
+      else { say('Det blir morgon!'); W.mobs.filter(m => !m.animal && m.y > W.H(m.x) - 2).forEach(m => removeCreature(m)); }
     }
   }
   if (busy) { W.mobs.forEach(m => animCreature(m, 0, t)); return; }
@@ -538,22 +554,25 @@ function lifeTick(dt, t) {
     W.spawnT = 6 + Math.random() * 6;
     const animals = W.mobs.filter(m => m.animal).length, monsters = W.mobs.filter(m => !m.animal).length;
     if (W.L.surface && !W.wasNight && animals < 3 && Math.random() < (animals < 2 ? 1 : .5)) {
-      const xs = []; for (let x = X0 + 1; x < X1; x++) { if (Math.abs(x) === 5 || Math.abs(x - bot.x) <= 1 || W.water.has(W.key(x, 0))) continue; const y = ground(x, 2); if (y != null && y >= 1 && !mobAt(x, y)) xs.push([x, y]); }
+      const xs = []; for (let x = Math.max(X0 + 1, bot.x - 12); x <= Math.min(X1 - 1, bot.x + 12); x++) { if (Math.abs(x) === 5 || Math.abs(x - bot.x) <= 1) continue; const y = ground(x, TOP); if (y != null && y > W.H(x) && !W.water.has(W.key(x, y)) && !mobAt(x, y)) xs.push([x, y]); }
       if (xs.length) { const [x, y] = pick(xs); addCreature(pick(['ko', 'gris', 'hona']), x, y); }
     }
-    const surfaceNight = W.L.surface && W.wasNight && bot.y >= -1;
-    const caveChance = W.L.surface ? (bot.y < -3 ? .08 : 0) : .12 + .03 * W.li;
+    const g0 = W.H(bot.x), surfaceNight = W.L.surface && W.wasNight && bot.y >= g0 - 1;
+    const caveChance = W.L.surface ? (bot.y < g0 - 4 ? .08 : 0) : .12 + .03 * W.li;
     if (surfaceNight && monsters < 3 && Math.random() < .7) {
-      const x = pick([X0, X1, X0 + 1, X1 - 1]), y = ground(x, 2);
-      if (y != null && Math.abs(x - bot.x) > 3 && !mobAt(x, y)) addCreature(pick(['zombie', 'zombie', 'skelett', 'slem']), x, y);
+      const x = Math.max(X0, Math.min(X1, bot.x + pick([-1, 1]) * rand(8, 13))), y = ground(x, TOP);
+      if (y != null && Math.abs(x - bot.x) > 3 && !W.water.has(W.key(x, y)) && !mobAt(x, y)) addCreature(pick(['zombie', 'zombie', 'skelett', 'slem']), x, y);
     } else if (!surfaceNight && monsters < (W.li >= 3 ? 2 : 1) && Math.random() < caveChance) {
       const spots = [];
-      for (let x = X0; x <= X1; x++) for (let y = bot.y - 6; y <= bot.y + 4; y++) { const d = Math.abs(x - bot.x) + Math.abs(y - bot.y); if (d >= 4 && d <= 9 && inside(x, y) && y < 0 && !solid(x, y) && solid(x, y - 1) && !mobAt(x, y)) spots.push([x, y]); }
+      for (let x = Math.max(X0, bot.x - 9); x <= Math.min(X1, bot.x + 9); x++) for (let y = bot.y - 6; y <= bot.y + 4; y++) { const d = Math.abs(x - bot.x) + Math.abs(y - bot.y); if (d >= 4 && d <= 9 && inside(x, y) && y < W.H(x) - 2 && !solid(x, y) && solid(x, y - 1) && !W.water.has(W.key(x, y)) && !mobAt(x, y)) spots.push([x, y]); }
       if (spots.length) { const [x, y] = pick(spots); const kinds = [['zombie', 'skelett'], ['zombie', 'skelett', 'slem'], ['skelett', 'slem'], ['slem', 'spokbot'], ['spokbot', 'spokbot', 'slem']][W.li]; addCreature(pick(kinds), x, y); }
     }
   }
   // moving, and monsters that reach the robot start a fight
   for (const m of [...W.mobs]) {
+    const far = Math.abs(m.x - bot.x);
+    if (far > 40) { removeCreature(m, false); continue; }
+    if (far > 22) continue; // far away: frozen, costs nothing
     m.t -= dt;
     if (m.t <= 0 && m.k >= 1) { m.t = m.animal ? 1.6 + Math.random() * 2 : .75; creatureStep(m); }
     animCreature(m, dt, t);
