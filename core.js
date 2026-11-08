@@ -136,10 +136,35 @@ setInterval(() => {
 
 /* ================= sound ================= */
 let ac = null, master = null, noiseBuf = null;
-export function audioInit() {
-  if (ac) { if (ac.state !== 'running') { try { ac.resume().catch(() => {}); } catch {} } return; }
-  try { ac = new (window.AudioContext || window.webkitAudioContext)(); master = ac.createGain(); master.gain.value = .4; master.connect(ac.destination); loadVoice(); } catch {}
+// iPhone: Web Audio is muted by the silent switch unless the page's audio session is "playback".
+// Newer iOS has navigator.audioSession; older iOS gets the same effect from a looping silent <audio>.
+let keepAlive = null;
+function silentWavUrl() {
+  const n = 4410, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf), w = (o, t) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
 }
+function unlockMedia() {
+  try { if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback'; } catch {}
+  try {
+    if (!keepAlive) { keepAlive = document.createElement('audio'); keepAlive.src = silentWavUrl(); keepAlive.loop = true; keepAlive.setAttribute('playsinline', ''); keepAlive.preload = 'auto'; }
+    if (keepAlive.paused) { const p = keepAlive.play(); if (p && p.catch) p.catch(() => {}); }
+  } catch {}
+}
+export function audioInit() {
+  unlockMedia();
+  if (ac) { if (ac.state !== 'running') { try { ac.resume().catch(() => {}); } catch {} } return; }
+  try {
+    ac = new (window.AudioContext || window.webkitAudioContext)(); master = ac.createGain(); master.gain.value = .4; master.connect(ac.destination);
+    const b = ac.createBuffer(1, 1, 22050), s = ac.createBufferSource(); s.buffer = b; s.connect(ac.destination); s.start(0);
+    if (ac.state !== 'running') ac.resume().catch(() => {});
+    loadVoice();
+  } catch {}
+}
+// Every tap tries again until sound is running (iOS only allows it from a real tap, e.g. touchend/click).
+['touchend', 'click', 'keydown'].forEach(n => document.addEventListener(n, () => { if (!ac || ac.state !== 'running' || (keepAlive && keepAlive.paused)) audioInit(); }, { capture: true, passive: true }));
+document.addEventListener('visibilitychange', () => { if (!document.hidden && ac && ac.state !== 'running') { try { ac.resume().catch(() => {}); } catch {} } });
 function envl(g, t, a, d, peak) { g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(.0001, t + a + d); }
 function tone(freq, dur = .15, type = 'sine', vol = .3, when = 0, slide = 0) {
   if (!ac) return; const t = ac.currentTime + when;

@@ -230,8 +230,14 @@ export function ask({ title = 'Fråga', accent = '#6a4cff', place = '', prefer =
     setTimeout(() => say(q.say), 200);
     let wrongs = 0;
     m.querySelector('.speak').onclick = () => say(q.say);
-    m.querySelectorAll('.ans').forEach(b => b.onclick = () => {
-      if (m.dataset.done) return;
+    // Answer on touch-down: on iPhone a tap with a second finger (while one finger holds GAS) never becomes a click.
+    const shownAt = performance.now();
+    m.querySelectorAll('.ans').forEach(b => {
+      b.addEventListener('pointerdown', e => { e.preventDefault(); if (performance.now() - shownAt > 350) choose(b); });
+      b.onclick = e => { if (e.detail === 0) choose(b); };
+    });
+    function choose(b) {
+      if (m.dataset.done || b.classList.contains('gone')) return;
       if (+b.dataset.i === q.correct) {
         m.dataset.done = '1'; b.classList.add('ok'); sfx.right(); if (!wrongs) say(pick(PRAISE));
         const secs = (performance.now() - t0) / 1000;
@@ -242,7 +248,7 @@ export function ask({ title = 'Fråga', accent = '#6a4cff', place = '', prefer =
         save();
         setTimeout(() => { m.className = 'qmodal'; m.innerHTML = ''; asking = false; resolve({ wrongs, track, level, firstTry: !wrongs }); }, 650);
       } else { wrongs++; b.classList.add('no', 'gone'); sfx.wrong(); say('Försök igen.'); }
-    });
+    }
   });
 }
 export function cancelAsk() { const m = $('#qmodal'); if (!m) return; m.className = 'qmodal'; m.innerHTML = ''; asking = false; }
