@@ -179,6 +179,8 @@ function noise(dur = .1, vol = .2, freq = 1200, q = 1, when = 0) {
   const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
   const g = ac.createGain(); envl(g, t, .005, dur, vol); s.connect(f).connect(g).connect(master); s.start(t, Math.random() * .4); s.stop(t + dur + .05);
 }
+// Leave on touch-down: a second finger tap (while one finger holds to dig) never becomes a click on iPhone.
+export function homeButton(b, api) { const go = e => { e.preventDefault(); e.stopPropagation(); api.exit(); }; b.addEventListener('pointerdown', go); b.onclick = go; }
 export const sfx = {
   tap() { tone(660, .07, 'triangle', .12); },
   chip() { noise(.06, .22, 800 + Math.random() * 900, 2); },
@@ -193,6 +195,9 @@ export const sfx = {
   beep(hi) { tone(hi ? 880 : 440, hi ? .5 : .18, 'square', .1); },
   unlock() { [0, 7, 12, 19, 24].forEach((n, i) => tone(330 * 2 ** (n / 12), .32, 'sine', .2, i * .12)); },
   thud() { tone(90, .18, 'sine', .25, 0, .5); },
+  boom() { noise(.9, .55, 240, .6); tone(70, .6, 'sine', .35, 0, .4); },
+  hiss() { noise(.5, .12, 3200, 3); },
+  twang() { tone(520, .12, 'triangle', .12, 0, 1.6); noise(.12, .1, 2400, 2); },
 };
 export function engineSound() {
   if (!ac) return { set() {}, stop() {} };

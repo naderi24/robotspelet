@@ -1,6 +1,6 @@
 // Blockgruvan: hold on a block to dig it. Harder blocks take longer; harder ores need better pickaxes.
 // Ores and finds open with a question. Pickaxes are built from ores and open deeper caves.
-import { THREE, S, save, $, ICON, gemIcon, coinIcon, M, E, RB, mesh, canvasTex, skyTex, makeSparks, makeMotes, createView, makeRobot, idleRobot, setLoop, sfx, say, toast, openPanel, closePanel, toScreen, flyTo, lerp, ease, clamp01, rand, pick, CALM } from './core.js';
+import { THREE, S, save, $, ICON, gemIcon, coinIcon, M, E, RB, mesh, canvasTex, skyTex, makeSparks, makeMotes, createView, makeRobot, idleRobot, setLoop, sfx, say, toast, homeButton, openPanel, closePanel, toScreen, flyTo, lerp, ease, clamp01, rand, pick, CALM } from './core.js';
 import { ask, cancelAsk, isAsking } from './learn.js';
 import { makeCreature, ANIMALS, MOBS, FISH } from './creatures.js';
 
@@ -304,9 +304,10 @@ function buildHud() {
       <button class="tool" id="m-shop" data-tts="Verkstaden"><span class="round big">${ICON.wrench}</span><em>Verkstad</em></button>
       <button class="tool" id="m-lift" data-tts="Hissen"><span class="round big">${ICON.lift}</span><em>Hiss</em></button>
     </div>
+    <button class="tool m-back" id="m-back" data-tts="Hem"><span class="round big">${ICON.home}</span><em>Hem</em></button>
     <div class="hintb" id="m-hint"></div>`;
   api.refreshBattery();
-  $('#m-home').onclick = () => api.exit();
+  for (const id of ['#m-home', '#m-back']) homeButton($(id), api);
   $('#m-shop').onclick = () => showShop();
   $('#m-build').onclick = toggleBuild;
   $('#m-lift').onclick = showLift;
@@ -573,11 +574,11 @@ function lifeTick(dt, t) {
     const caveChance = W.L.surface ? (bot.y < g0 - 4 ? .08 : 0) : .12 + .03 * W.li;
     if (surfaceNight && monsters < 3 && Math.random() < .7) {
       const x = Math.max(X0, Math.min(X1, bot.x + pick([-1, 1]) * rand(8, 13))), y = ground(x, TOP);
-      if (y != null && Math.abs(x - bot.x) > 3 && !W.water.has(W.key(x, y)) && !mobAt(x, y)) addCreature(pick(['zombie', 'zombie', 'skelett', 'slem']), x, y);
+      if (y != null && Math.abs(x - bot.x) > 3 && !W.water.has(W.key(x, y)) && !mobAt(x, y)) addCreature(pick(['zombie', 'zombie', 'skelett', 'skelett', 'bomb', 'slem']), x, y);
     } else if (!surfaceNight && monsters < (W.li >= 3 ? 2 : 1) && Math.random() < caveChance) {
       const spots = [];
       for (let x = Math.max(X0, bot.x - 9); x <= Math.min(X1, bot.x + 9); x++) for (let y = bot.y - 6; y <= bot.y + 4; y++) { const d = Math.abs(x - bot.x) + Math.abs(y - bot.y); if (d >= 4 && d <= 9 && inside(x, y) && y < W.H(x) - 2 && !solid(x, y) && solid(x, y - 1) && !W.water.has(W.key(x, y)) && !mobAt(x, y)) spots.push([x, y]); }
-      if (spots.length) { const [x, y] = pick(spots); const kinds = [['zombie', 'skelett'], ['zombie', 'skelett', 'slem'], ['skelett', 'slem'], ['slem', 'spokbot'], ['spokbot', 'spokbot', 'slem']][W.li]; addCreature(pick(kinds), x, y); }
+      if (spots.length) { const [x, y] = pick(spots); const kinds = [['zombie', 'skelett', 'bomb'], ['zombie', 'skelett', 'slem', 'bomb'], ['skelett', 'slem', 'bomb'], ['slem', 'spokbot', 'bomb', 'skelett'], ['spokbot', 'spokbot', 'slem', 'bomb']][W.li]; addCreature(pick(kinds), x, y); }
     }
   }
   // moving, and monsters that reach the robot start a fight
@@ -588,7 +589,7 @@ function lifeTick(dt, t) {
     m.t -= dt;
     if (m.t <= 0 && m.k >= 1) { m.t = m.animal ? 1.6 + Math.random() * 2 : .75; creatureStep(m); }
     animCreature(m, dt, t);
-    if (!m.animal && m.k >= 1 && Math.abs(bot.x - m.x) + Math.abs(bot.y - m.y) <= 1 && !bot.anim) { fight(m); break; }
+    if (!m.animal && m.k >= 1 && !bot.anim && (Math.abs(bot.x - m.x) + Math.abs(bot.y - m.y) <= 1 || canShoot(m))) { m.def.range && Math.abs(bot.x - m.x) > 1 ? shoot(m) : fight(m); break; }
   }
   // hearts slowly come back
   if (S.mine.hp < MAXHP) { W.regenT += dt; if (W.regenT > 60) { W.regenT = 0; S.mine.hp++; save(); drawStatus(); } }
@@ -598,6 +599,7 @@ function animCreature(m, dt, t) {
   const e = ease(m.k), x = lerp(m.fx, m.x, e), y = lerp(m.fy, m.y, m.fy > m.y ? m.k * m.k : e);
   m.g.position.set(x, y - .5 + (m.k < 1 ? Math.sin(m.k * Math.PI) * .08 : 0), 0);
   if (m.g.userData.bob) m.g.userData.bob.position.y = (m.kind === 'slem' ? .26 : 0) + Math.sin(t * 3 + m.x) * .04;
+  if (m.g.userData.spark) m.g.userData.spark.scale.setScalar(.7 + Math.abs(Math.sin(t * 17 + m.x)) * .8);
 }
 async function goFish(m) {
   if (!S.mine.rod) { sfx.wrong(); say('Du behöver ett fiskespö. Bygg det i verkstaden.'); toast('Du behöver ett fiskespö (Verkstaden → Fiske)', 2600); return; }
@@ -619,8 +621,29 @@ async function catchAnimal(m) {
   save(); drawStatus(); bot.busy = false;
 }
 const wait = ms => new Promise(r => setTimeout(r, ms));
+// skeletons shoot when they stand on his row with nothing in between
+function canShoot(m) {
+  if (!m.def.range || m.y !== bot.y || Math.abs(bot.x - m.x) > m.def.range) return false;
+  for (let x = Math.min(m.x, bot.x) + 1; x < Math.max(m.x, bot.x); x++) if (solid(x, m.y)) return false;
+  return true;
+}
+async function shoot(m) {
+  if (bot.busy) return;
+  bot.busy = true; bot.target = null; W.dig = null; W.crack.visible = false;
+  m.g.rotation.y = bot.x > m.x ? 0 : Math.PI; sfx.twang();
+  const arrow = new THREE.Group(), wood = M(0x8a5a2c), tipM = M(0xcfd6e0);
+  const shaft = new THREE.Mesh(new THREE.BoxGeometry(.5, .03, .03), wood); arrow.add(shaft);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(.05, .12, 4), tipM); tip.rotation.z = -Math.PI / 2; tip.position.x = .3; arrow.add(tip);
+  const dir = Math.sign(bot.x - m.x); arrow.scale.x = dir; W.sc.add(arrow);
+  const x0 = m.x, x1 = bot.x - dir * .3, y = m.y + .1;
+  for (let i = 0; i <= 10; i++) { if (!W) return; arrow.position.set(lerp(x0, x1, i / 10), y, .3); await wait(28); }
+  if (!W) return;
+  W.sc.remove(arrow); sfx.thud(); bot.busy = false;
+  fight(m);
+}
 async function fight(m) {
   if (bot.busy) return;
+  if (m.def.boom) return bombFight(m);
   bot.busy = true; bot.target = null; W.dig = null; W.crack.visible = false;
   faceTo(Math.sign(m.x - bot.x) || 1, 0); sfx.thud(); say(m.def.say);
   while (W && m.hp > 0 && S.mine.hp > 0) {
@@ -640,6 +663,28 @@ async function fight(m) {
   if (!W) return;
   if (S.mine.hp <= 0) { faint(); return; }
   removeCreature(m); sfx.win(); say('Du vann striden!'); bot.busy = false; save();
+}
+async function bombFight(m) {
+  bot.busy = true; bot.target = null; W.dig = null; W.crack.visible = false;
+  faceTo(Math.sign(m.x - bot.x) || 1, 0); sfx.hiss(); say(m.def.say);
+  const ball = m.g.userData.ball; let on = true;
+  const blink = setInterval(() => { if (!W || !ball) return; on = !on; ball.material.emissive.set(on ? 0xffffff : 0x000000); ball.material.emissiveIntensity = on ? .6 : 0; }, 260);
+  const res = await ask({ title: 'Släck smällbomben!', accent: '#ff9a1f' });
+  clearInterval(blink);
+  if (!W) return;
+  if (!res.wrongs) { removeCreature(m); sfx.right(); say('Puh! Du släckte den.'); toast('Smällbomben släcktes!', 1800); bot.busy = false; save(); return; }
+  // it goes off: dirt, stone, leaves and built blocks around it are blown away
+  sfx.boom(); removeCreature(m, false);
+  W.chips.burst(new THREE.Vector3(m.x, m.y, .5), 60, 5, ['#ffd23a', '#ff8a1f', '#ff4a1a', '#5a5a5a', '#2a2a2a']);
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+    const c = cellAt(m.x + dx, m.y + dy);
+    if (c && (c.t === 'b0' || c.t === 'b1' || c.t === 'grass' || c.t === 'leaf' || c.t.startsWith('p_'))) hideCell(c);
+  }
+  if (Math.random() < ARMOR[S.mine.armor].block) { toast(`${armorIcon(hexs(ARMOR[S.mine.armor].c), 26)} Rustningen skyddade dig!`, 1500); }
+  else { S.mine.hp = Math.max(0, S.mine.hp - 1); hurt(); }
+  drawStatus(); persist(); save();
+  if (S.mine.hp <= 0) { faint(); return; }
+  bot.busy = false;
 }
 function hurt() {
   sfx.thud(); say('Aj!');
@@ -786,4 +831,4 @@ export function previewScene(v) {
   return { scene: sc, camera(c) { c.fov = 40; c.position.set(-.4, .2, 8.6); c.lookAt(-.8, -.5, 0); c.updateProjectionMatrix(); } };
 }
 
-export const _debug = () => ({ W, bot });
+export const _debug = () => ({ W, bot, addCreature });

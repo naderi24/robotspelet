@@ -341,11 +341,11 @@ function nextQuestion(prefer) {
   return { track, level, q: track === 'math' ? mathQ(level) : readQ(level) };
 }
 
-let asking = false;
+let asking = false, askGen = 0;
 export const isAsking = () => asking;
 export function ask({ title = 'Fråga', accent = '#6a4cff', place = '', prefer = null } = {}) {
   return new Promise(resolve => {
-    asking = true;
+    asking = true; const gen = ++askGen; document.body.classList.add('asking');
     const { track, level, q } = nextQuestion(prefer), m = $('#qmodal'), t0 = performance.now();
     m.className = 'qmodal on ' + place; m.style.setProperty('--q', accent); m.dataset.done = '';
     m.innerHTML = `<div class="qcard" role="dialog" aria-label="${title}">
@@ -379,9 +379,9 @@ export function ask({ title = 'Fråga', accent = '#6a4cff', place = '', prefer =
           if (wrongs) { L.miss.push({ level, q }); if (L.miss.length > 8) L.miss.shift(); }
           save();
         }
-        setTimeout(() => { m.className = 'qmodal'; m.innerHTML = ''; asking = false; resolve({ wrongs, track, level, firstTry: !wrongs }); }, 650);
+        setTimeout(() => { if (gen !== askGen) return; m.className = 'qmodal'; m.innerHTML = ''; asking = false; document.body.classList.remove('asking'); resolve({ wrongs, track, level, firstTry: !wrongs }); }, 650);
       } else { wrongs++; b.classList.add('no', 'gone'); sfx.wrong(); say(q.fa ? FA_PHRASES.retry : 'Försök igen.'); }
     }
   });
 }
-export function cancelAsk() { const m = $('#qmodal'); if (!m) return; m.className = 'qmodal'; m.innerHTML = ''; asking = false; }
+export function cancelAsk() { askGen++; document.body.classList.remove('asking'); const m = $('#qmodal'); if (!m) return; m.className = 'qmodal'; m.innerHTML = ''; asking = false; }

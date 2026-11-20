@@ -1,5 +1,5 @@
 // Dragracet: collect real car cards, race the rivals on six tracks, answer questions for nitro.
-import { THREE, S, save, $, ICON, coinIcon, M, E, RB, mesh, shadows, canvasTex, skyTex, dotTex, makeSparks, makeMotes, createView, disposeScene, makeCar, setLoop, sfx, say, toast, openPanel, closePanel, engineSound, lerp, ease, clamp01, rand, pick, CALM } from './core.js';
+import { THREE, S, save, $, ICON, coinIcon, M, E, RB, mesh, shadows, canvasTex, skyTex, dotTex, makeSparks, makeMotes, createView, disposeScene, makeCar, setLoop, sfx, say, toast, homeButton, openPanel, closePanel, engineSound, lerp, ease, clamp01, rand, pick, CALM } from './core.js';
 import { ask, cancelAsk } from './learn.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CARS, carById, TRACKS, physics, NITRO, PHOTOS } from './cars.js';
@@ -107,7 +107,7 @@ function showGarage(index) {
     <button class="go-btn" id="g-race">${ICON.play}<span>Kör!</span></button>
     <div class="g-tip">På en kort sträcka är <b>0–100</b> viktigast.</div>`;
   api.refreshBattery();
-  $('#d-home').onclick = () => api.exit();
+  homeButton($('#d-home'), api);
   $('#d-album').onclick = showAlbum;
   $('#d-learn').onclick = () => showFlash(0);
   const n = garage.list.length;

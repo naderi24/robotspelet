@@ -76,6 +76,10 @@ button:focus-visible{outline:3px solid #fff;outline-offset:3px}
 #stage{position:absolute;inset:0;touch-action:none}
 #stage canvas{display:block;width:100%;height:100%}
 #hud{position:absolute;inset:0;pointer-events:none;font-family:var(--display)}
+/* the question card dims the game but lets taps through, so the home buttons always work */
+.qmodal{pointer-events:none}.qmodal .qcard{pointer-events:auto}
+body.asking #hud .tool:not(.m-back),body.asking #hud .hb,body.asking #hud .foodbtn{pointer-events:none}
+.m-back{position:absolute;left:var(--sl);bottom:calc(var(--sb) + 10px)}
 .hud-top{position:absolute;top:calc(var(--st) + 10px);left:var(--sl);right:var(--sr);display:flex;align-items:center;gap:10px}
 .inv{display:flex;gap:8px;pointer-events:auto}
 .slot{display:flex;align-items:center;gap:8px;padding:6px 12px 6px 10px;border-radius:99px;background:rgba(10,12,30,.6);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
@@ -361,7 +365,7 @@ button:focus-visible{outline:3px solid #fff;outline-offset:3px}
 <div id="glLost" class="screen" hidden style="z-index:96;background:#0b0e1a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;font-family:var(--display)"><p style="font-size:24px;margin:0">Oj! Spelet behöver startas om.</p><button class="pill strong" onclick="location.reload()">Starta om</button></div>
 <div id="home" class="screen">
   <div class="h-top">
-    <h1>Robotspelet</h1><span id="ver" style="font-size:11px;color:#6b7194;font-weight:800;align-self:flex-end;margin-bottom:6px">v15</span>
+    <h1>Robotspelet</h1><span id="ver" style="font-size:11px;color:#6b7194;font-weight:800;align-self:flex-end;margin-bottom:6px">v16</span>
     <div class="chip" data-batt><b class="batt"><i></i></b><span></span></div>
     <span class="grow"></span>
     <button class="round" id="musicBtn" aria-label="Musik på eller av"></button>
@@ -474,6 +478,7 @@ async function renderPreviews() {
 }
 function show(id) { for (const s of ['home', 'game', 'sleep']) $('#' + s).hidden = s !== id; }
 async function start(mod) {
+  if (performance.now() - leftAt < 600) return; // the tap that left a game must not open the next one
   audioInit(); sfx.tap();
   let waited = false; const t = setTimeout(() => { waited = true; toast('Laddar…'); }, 400);
   await Promise.race([cloudReady(), new Promise(r => setTimeout(r, 6000))]); clearTimeout(t);
@@ -482,8 +487,9 @@ async function start(mod) {
   show('game'); current = mod;
   try { mod.enter($('#stage'), $('#hud'), api); } catch (e) { if (window.__showErr) window.__showErr('start: ' + (e && e.message)); current = null; show('home'); toast('Spelet kunde inte starta. Prova Snabb grafik under föräldrar.', 4000); return; } timer.start(); updateBatteries(); music.mood(mod === mine ? 'mine' : 'drag');
 }
-function goHome() { if (current) { current.exit(); current = null; } timer.stop(); show('home'); renderHome(); music.mood('home'); setTimeout(renderPreviews, 300); }
-function sleep() { if (current) { current.exit(); current = null; } timer.stop(); closePanel(); music.stop(); show('sleep'); say('Batteriet är slut. Vi ses imorgon!'); }
+let leftAt = 0;
+function goHome() { leftAt = performance.now(); const c = current; current = null; if (c) { try { c.exit(); } catch (e) { if (window.__showErr) window.__showErr('exit: ' + (e && e.message)); } } timer.stop(); show('home'); renderHome(); music.mood('home'); setTimeout(renderPreviews, 300); }
+function sleep() { const c = current; current = null; if (c) { try { c.exit(); } catch (e) { } } timer.stop(); closePanel(); music.stop(); show('sleep'); say('Batteriet är slut. Vi ses imorgon!'); }
 timer.onEnd = sleep;
 timer.onWarn = () => { toast('En minut kvar'); say('En minut kvar.'); };
 $('#playMine').onclick = () => start(mine);
